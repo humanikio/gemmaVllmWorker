@@ -1,0 +1,79 @@
+# Available Quantized Models — Gemma 4 26B-A4B-IT
+
+Surveyed April 4, 2026. Focus on the MoE variant since that's our target.
+
+## vLLM-Compatible (what we can use)
+
+### AWQ — Best Option Right Now
+
+| Model ID | Bits | VRAM | Downloads | Format |
+|----------|------|------|-----------|--------|
+| `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` | 4 | ~13 GB | 15K | compressed-tensors |
+| `cyankiwi/gemma-4-26B-A4B-it-AWQ-8bit` | 8 | ~26 GB | 102 | compressed-tensors |
+| `lcu0312/gemma-4-26B-A4B-it-AWQ-4bit` | 4 | ~13 GB | 97 | compressed-tensors |
+
+**Recommendation**: `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` — highest download count, proven to work.
+
+### GPTQ
+
+| Model ID | Bits | VRAM | Downloads | Notes |
+|----------|------|------|-----------|-------|
+| `raydelossantos/gemma-4-26B-A4B-it-GPTQ-Int4` | 4 | ~13 GB | 0 | Brand new (Apr 4) |
+| `raydelossantos/gemma-4-26B-A4B-it-GPTQ-Int4-v2` | 4 | ~13 GB | 0 | Updated same day |
+
+**Status**: Too new to trust. Zero downloads. GPTQ tooling for Gemma 4 is still maturing (llm-compressor blocked on transformers pin).
+
+### FP8
+
+| Model ID | VRAM | Downloads | Notes |
+|----------|------|-----------|-------|
+| `protoLabsAI/gemma-4-26B-A4B-it-FP8` | ~26 GB | 4.6K | FP8 dynamic |
+| `leon-se/gemma-4-26B-A4B-it-FP8-Dynamic` | ~26 GB | 210 | compressed-tensors |
+
+**Status**: Good quality but still needs a 40 GB+ GPU. Defeats our cost goal.
+
+### NVFP4
+
+| Model ID | VRAM | Downloads | Notes |
+|----------|------|-----------|-------|
+| `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` | ~13 GB | 3.1K | W4A4, Blackwell/Hopper only |
+
+**Status**: Broken in vLLM 0.19.0 (issue #38912, scale key mismatch). Also requires H100/B200 GPUs.
+
+### Intel AutoRound
+
+| Model ID | VRAM | Downloads | Notes |
+|----------|------|-----------|-------|
+| `Intel/gemma-4-26B-A4B-it-int4-mixed-AutoRound` | ~13 GB | 1.7K | Mixed-precision INT4 |
+| `Intel/gemma-4-26B-A4B-it-int4-AutoRound` | ~13 GB | 713 | Standard INT4 |
+
+**Status**: Untested with vLLM. Interesting mixed-precision approach but unproven for our stack.
+
+## Not vLLM-Compatible (reference only)
+
+### GGUF (llama.cpp / Ollama)
+
+| Model ID | Downloads | Notes |
+|----------|-----------|-------|
+| `unsloth/gemma-4-26B-A4B-it-GGUF` | 301K | Most popular overall |
+| `lmstudio-community/gemma-4-26B-A4B-it-GGUF` | 202K | High adoption |
+| `bartowski/google_gemma-4-26B-A4B-it-GGUF` | 32K | imatrix |
+| `ggml-org/gemma-4-26B-A4B-it-GGUF` | 23K | Official ggml |
+
+The 500K+ combined GGUF downloads confirm strong community adoption of this model. GGUF is not usable with vLLM though.
+
+### MLX (Apple Silicon)
+
+| Model ID | Downloads |
+|----------|-----------|
+| `mlx-community/gemma-4-26b-a4b-it-4bit` | 16K |
+
+## Decision
+
+**Target model**: `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit`
+
+- 4-bit AWQ = ~13 GB VRAM
+- Fits on 24 GB GPUs (A10G, RTX 4090, L4)
+- 15K downloads — community validated
+- AWQ is well-supported in vLLM
+- `compressed-tensors` format is native to vLLM

@@ -1,0 +1,143 @@
+{
+  "title": "Synthcore Gemma 4 MoE Worker",
+  "description": "Cost-efficient Gemma 4 26B-A4B MoE inference (AWQ 4-bit) — OpenAI-compatible API powered by vLLM 0.19.0",
+  "type": "serverless",
+  "category": "language",
+  "config": {
+    "runsOn": "GPU",
+    "containerDiskInGb": 50,
+    "gpuIds": "AMPERE_24,ADA_24",
+    "gpuCount": 1,
+    "allowedCudaVersions": ["12.9", "12.8"],
+    "env": [
+      {
+        "key": "MODEL_NAME",
+        "input": {
+          "name": "Model",
+          "type": "string",
+          "description": "HuggingFace model ID",
+          "default": "cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit",
+          "required": true
+        }
+      },
+      {
+        "key": "QUANTIZATION",
+        "input": {
+          "name": "Quantization",
+          "type": "string",
+          "description": "Quantization method",
+          "default": "awq",
+          "options": [
+            { "label": "AWQ", "value": "awq" },
+            { "label": "GPTQ", "value": "gptq" },
+            { "label": "None", "value": "None" }
+          ]
+        }
+      },
+      {
+        "key": "MAX_MODEL_LEN",
+        "input": {
+          "name": "Max Context Length",
+          "type": "number",
+          "description": "Max sequence length. Higher = more KV cache VRAM. Start conservative on 24GB GPUs.",
+          "default": 8192
+        }
+      },
+      {
+        "key": "GPU_MEMORY_UTILIZATION",
+        "input": {
+          "name": "GPU Memory Utilization",
+          "type": "number",
+          "description": "Fraction of GPU VRAM to use (0.0-1.0)",
+          "default": 0.95,
+          "advanced": true
+        }
+      },
+      {
+        "key": "MAX_CONCURRENCY",
+        "input": {
+          "name": "Max Concurrency",
+          "type": "number",
+          "description": "Max concurrent requests per worker",
+          "default": 30,
+          "advanced": true
+        }
+      },
+      {
+        "key": "DTYPE",
+        "input": {
+          "name": "Data Type",
+          "type": "string",
+          "description": "Model weight dtype",
+          "default": "float16",
+          "options": [
+            { "label": "auto", "value": "auto" },
+            { "label": "float16", "value": "float16" },
+            { "label": "bfloat16", "value": "bfloat16" }
+          ],
+          "advanced": true
+        }
+      },
+      {
+        "key": "ENFORCE_EAGER",
+        "input": {
+          "name": "Enforce Eager",
+          "type": "boolean",
+          "description": "Disable CUDA graphs (use if hitting memory issues)",
+          "default": false,
+          "advanced": true
+        }
+      },
+      {
+        "key": "OPENAI_SERVED_MODEL_NAME_OVERRIDE",
+        "input": {
+          "name": "Served Model Name",
+          "type": "string",
+          "description": "Model name returned in OpenAI API responses",
+          "default": "gemma-4-26b-moe",
+          "advanced": true
+        }
+      },
+      {
+        "key": "ENABLE_PREFIX_CACHING",
+        "input": {
+          "name": "Enable Prefix Caching",
+          "type": "boolean",
+          "description": "Cache common prompt prefixes to speed up repeated requests",
+          "default": true,
+          "advanced": true
+        }
+      },
+      {
+        "key": "RAW_OPENAI_OUTPUT",
+        "input": {
+          "name": "Raw OpenAI Output",
+          "type": "boolean",
+          "description": "Raw OpenAI SSE format for streaming (required for OpenAI compat)",
+          "default": true,
+          "advanced": true
+        }
+      },
+      {
+        "key": "DEFAULT_BATCH_SIZE",
+        "input": {
+          "name": "Streaming Batch Size",
+          "type": "number",
+          "description": "Max tokens per streaming HTTP chunk",
+          "default": 50,
+          "advanced": true
+        }
+      },
+      {
+        "key": "ENABLE_LOG_REQUESTS",
+        "input": {
+          "name": "Enable Log Requests",
+          "type": "boolean",
+          "description": "Log each request for debugging",
+          "default": false,
+          "advanced": true
+        }
+      }
+    ]
+  }
+}
