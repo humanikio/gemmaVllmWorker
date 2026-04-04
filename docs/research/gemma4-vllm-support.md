@@ -72,6 +72,33 @@ The `Gemma4ToolParser.__init__()` was written against an old base class signatur
 | #38833 | ROCm: pad MoE intermediate size | AMD GPU support |
 | #38824 | ROCm: add head-dim 512 | AMD GPU support |
 
+## Confirmed Working (Our Testing, April 4, 2026)
+
+Tested `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` on RunPod L40S (Ada sm_89):
+
+- **vLLM 0.19.0** + **transformers 5.5.0** — model loads and serves via OpenAI-compatible API
+- Quantization format: `compressed-tensors` (auto-detected, do NOT set `QUANTIZATION` env var)
+- Engine init: ~127s (model cached on volume), ~160s (first download)
+- KV cache: 24.5 GB available on L40S, 106K tokens, 14.2x concurrency at 8192 ctx
+- Code generation quality: Good — clean Python output with docstrings, proper algorithms
+
+### vLLM 0.19.0 Breaking Changes We Hit
+
+Three fixes needed in the OpenAI serving layer (all committed to our repo):
+
+1. **`OpenAIServingRender` required** — New object that `OpenAIServingChat` and `OpenAIServingCompletion` depend on. Must be created from `model_config`, `renderer`, `io_processor`, and `model_registry`.
+2. **`log_error_stack` moved** — No longer a param on chat/completion constructors. Moved to `OpenAIServingRender`.
+3. **`warmup()` is sync** — Was async, now returns `None`. Must call without `await`.
+
+### GPU Compatibility
+
+| GPU Arch | Compute | Status |
+|----------|---------|--------|
+| Ada (L4, L40S, RTX 4090) | sm_89 | **Works** |
+| Ampere (A10G, RTX 3090, A5000) | sm_86 | Expected to work |
+| Blackwell (RTX 5090) | sm_12.0 | **FAILS** — Marlin kernel PTX incompatible |
+| Turing (T4, RTX 2080 Ti) | sm_75 | **FAILS** — shared memory limits |
+
 ## Dependencies
 
 - **vLLM**: >= 0.19.0 (hard requirement)

@@ -237,6 +237,16 @@ Stopped pods don't incur GPU charges but do incur small volume storage charges. 
 
 **Out of VRAM**: Lower `MAX_MODEL_LEN` (try 4096) or set `ENFORCE_EAGER=true` to disable CUDA graphs (saves ~1-2GB).
 
-**Pod won't start**: Check GPU availability with `runpodctl gpu list`. Try a different GPU type or datacenter.
+**Pod won't start**: Check GPU availability with `runpodctl gpu list`. Try a different GPU type or datacenter. Secure cloud tends to have better availability than community.
 
-**SSH connection refused**: Wait 1-2 minutes after pod creation for it to boot. Check `runpodctl pod list` — status should be `RUNNING`.
+**SSH connection refused**: Wait 1-2 minutes after pod creation for it to boot. Check `runpodctl pod list` — status should be `RUNNING`. Secure cloud pods boot faster; community cloud may take 5+ minutes for image pull.
+
+**GPU memory stuck after crash**: If `nvidia-smi` shows high memory usage but no processes, the only fix is to stop/start the pod (`runpodctl pod stop <id>` then `runpodctl pod start <id>`). GPU reset is blocked in containers.
+
+**"No space left on device" during model download**: You forgot to set `HF_HOME=/workspace/huggingface-cache`. The default HF cache writes to the container disk (~30GB), which fills up. Always point it to the volume.
+
+**QUANTIZATION=awq causes validation error**: The AWQ model uses `compressed-tensors` format. Do NOT set `QUANTIZATION` — vLLM auto-detects it. See [available-quants.md](../research/available-quants.md).
+
+**Marlin kernel PTX error on RTX 5090**: Blackwell GPUs (sm_12.0) are incompatible with the Marlin quantization kernel. Use Ada (L4, L40S, RTX 4090) or Ampere (RTX 3090, A5000) instead. See the GPU compatibility matrix in [approach-and-future.md](../research/approach-and-future.md).
+
+**"start pod: not enough free GPUs"**: The host machine lost its GPU. Delete the pod and create a new one — `runpodctl pod delete <id>` then create fresh. Volume data is lost but the model re-downloads in ~1 minute if cached on HuggingFace CDN.

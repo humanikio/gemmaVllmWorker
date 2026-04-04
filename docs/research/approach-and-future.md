@@ -40,19 +40,49 @@ User request → Synthcore API → RunPod Serverless Endpoint
                                   /v1/models
 ```
 
-### RunPod Configuration
+### RunPod Configuration (Tested April 4, 2026)
 
 ```env
 MODEL_NAME=cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit
-QUANTIZATION=awq
+# Do NOT set QUANTIZATION — model uses compressed-tensors format, vLLM auto-detects
 GPU_MEMORY_UTILIZATION=0.95
-MAX_MODEL_LEN=8192          # Start conservative, scale up based on usage
+MAX_MODEL_LEN=8192
 MAX_CONCURRENCY=30
-DTYPE=float16
-ENFORCE_EAGER=false
+ENABLE_PREFIX_CACHING=true
+OPENAI_SERVED_MODEL_NAME_OVERRIDE=gemma-4-26b-moe
+# HF cache MUST point to the volume, not container disk (30GB fills up)
+HF_HOME=/runpod-volume/huggingface-cache
+HUGGINGFACE_HUB_CACHE=/runpod-volume/huggingface-cache/hub
 ```
 
-GPU target: 24 GB (A10G or L4 on RunPod)
+GPU target: Ada (sm_89) or Ampere (sm_86). See GPU Compatibility below.
+
+### Tested Performance (L40S, 48GB)
+
+| Metric | Value |
+|--------|-------|
+| Cold start (model cached) | ~127s |
+| Cold start (first download) | ~160s |
+| KV cache available | 24.5 GB |
+| KV cache tokens | 106,976 |
+| Max concurrency at 8192 ctx | 14.2x |
+| CUDA graph capture | 12s |
+
+### GPU Compatibility Matrix
+
+Tested on RunPod, April 4, 2026:
+
+| GPU | Arch | sm | VRAM | Status | Notes |
+|-----|------|-----|------|--------|-------|
+| L40S | Ada | 8.9 | 48 GB | **Works** | Tested and confirmed. Best dev option |
+| L4 | Ada | 8.9 | 24 GB | Expected to work | Same arch as L40S, tighter on VRAM |
+| RTX 4090 | Ada | 8.9 | 24 GB | Expected to work | Low stock on RunPod |
+| RTX A5000 | Ampere | 8.6 | 24 GB | Expected to work | Untested |
+| RTX 3090 | Ampere | 8.6 | 24 GB | Expected to work | Cheapest option |
+| RTX 5090 | **Blackwell** | 12.0 | 32 GB | **FAILS** | Marlin kernel PTX incompatible |
+| T4 | Turing | 7.5 | 16 GB | **FAILS** | Shared memory limits (head_dim=512) |
+
+**Rule: Use Ada or Ampere only. Avoid Blackwell and Turing.**
 
 ## Future Moves
 
@@ -104,12 +134,33 @@ Starting at `MAX_MODEL_LEN=8192` for cost reasons. The model supports 262K. As u
 **10. LoRA fine-tuning**
 The worker already supports LoRA adapters (`LORA_MODULES` env var). Could fine-tune Gemma 4 MoE on Synthcore-specific tasks (code generation, platform-specific knowledge) without retraining the full model.
 
+## Lessons Learned (April 4, 2026 Testing)
+
+### compressed-tensors, not AWQ
+The `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` model is stored in **compressed-tensors** format, not raw AWQ. Setting `QUANTIZATION=awq` causes a validation error. Remove it entirely — vLLM auto-detects the format from the model config.
+
+### vLLM 0.19.0 API Breaking Changes
+Three breaking changes in the OpenAI serving layer required code fixes:
+1. **`OpenAIServingRender`** — New required object that must be created and passed to both `OpenAIServingChat` and `OpenAIServingCompletion`
+2. **`log_error_stack`** — Moved from chat/completion constructors to the render layer
+3. **`warmup()`** — Changed from async to sync. `await self.chat_engine.warmup()` → `self.chat_engine.warmup()`
+
+### Blackwell GPUs (RTX 5090) Incompatible
+The Marlin quantization kernel compiles PTX for specific CUDA compute capabilities. Blackwell (sm_12.0) is too new — the PTX fails with `cudaErrorUnsupportedPtxVersion`. This is a kernel-level issue, not a config fix. Must use Ada (sm_89) or Ampere (sm_86).
+
+### HF Cache Location Critical
+The default HuggingFace cache (`~/.cache/huggingface`) writes to the container disk. On RunPod, that's typically 20-30GB — the model download (~7GB) plus unpacking fills it. Always point `HF_HOME` to the persistent volume.
+
+### GPU Memory Doesn't Free in Containers
+After a CUDA crash, GPU memory stays allocated even after all processes exit. `nvidia-smi --gpu-reset` is blocked by container permissions. The only fix is to stop/start the pod.
+
 ## Risk Register
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | AWQ quant has quality issues for code tasks | Medium | High | Benchmark against raw API calls before launch. Fallback to FP8 on larger GPU if needed |
 | vLLM 0.19.0 Gemma 4 bugs in production | High | Medium | Pin to known-good vLLM commit. Monitor RunPod worker logs for CUDA errors |
-| Cold start latency too high for "free" UX | Medium | Medium | Consider baking model into Docker image (Option 2 in Dockerfile) |
-| RunPod 24 GB GPU availability | Low | High | Configure fallback to 40 GB tier (L40S) with same image |
+| Cold start latency too high for "free" UX | Medium | Medium | Consider baking model into Docker image (Option 2 in Dockerfile). Current cold start: ~127s cached |
+| RunPod 24 GB GPU availability | Low | High | Configure fallback to 40 GB tier (L40S) with same image. L40S confirmed working |
+| Blackwell GPU assigned by RunPod | Medium | High | Explicitly set `gpuIds` in hub.json to Ada/Ampere only. Already done |
 | Upstream model updates (Gemma 4.1?) | Low | Low | Pin model revision. Evaluate upgrades when available |

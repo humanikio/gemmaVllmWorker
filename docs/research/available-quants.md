@@ -75,5 +75,19 @@ The 500K+ combined GGUF downloads confirm strong community adoption of this mode
 - 4-bit AWQ = ~13 GB VRAM
 - Fits on 24 GB GPUs (A10G, RTX 4090, L4)
 - 15K downloads — community validated
-- AWQ is well-supported in vLLM
-- `compressed-tensors` format is native to vLLM
+- `compressed-tensors` format — native to vLLM, auto-detected
+
+### Important: compressed-tensors Format
+
+This model is AWQ-quantized but stored in **compressed-tensors** format (not raw AWQ safetensors). vLLM auto-detects this from the model's `config.json`. **Do NOT set `QUANTIZATION=awq`** — it will cause a validation error:
+
+```
+Quantization method specified in the model config (compressed-tensors) does not match
+the quantization method specified in the `quantization` argument (awq).
+```
+
+Just set `MODEL_NAME` and let vLLM handle quantization detection.
+
+### Confirmed Working (April 4, 2026)
+
+Tested on RunPod L40S (48GB, Ada sm_89) with vLLM 0.19.0 + transformers 5.5.0. Model loads, serves OpenAI-compatible chat completions, generates quality code output.
