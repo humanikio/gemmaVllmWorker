@@ -1,17 +1,13 @@
-variable "DOCKERHUB_REPO" {
-  default = "humanik"
+variable "REGISTRY" {
+  default = "ghcr.io"
 }
 
-variable "DOCKERHUB_IMG" {
-  default = "gemma-vllm-worker"
+variable "IMAGE_NAME" {
+  default = "humanikio/gemmavllmworker"
 }
 
 variable "RELEASE_VERSION" {
   default = "latest"
-}
-
-variable "HUGGINGFACE_ACCESS_TOKEN" {
-  default = ""
 }
 
 group "default" {
@@ -19,7 +15,7 @@ group "default" {
 }
 
 target "gemma-worker" {
-  tags = ["${DOCKERHUB_REPO}/${DOCKERHUB_IMG}:${RELEASE_VERSION}"]
+  tags = ["${REGISTRY}/${IMAGE_NAME}:${RELEASE_VERSION}"]
   context = "."
   dockerfile = "Dockerfile"
   platforms = ["linux/amd64"]

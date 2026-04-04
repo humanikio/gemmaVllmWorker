@@ -3,84 +3,66 @@ name: Release
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+*" # Trigger on version tags like v1.0.0, v2.1.0, etc.
+      - "v[0-9]+.[0-9]+.[0-9]+*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release (e.g., v2.8.0)"
+        description: "Version to release (e.g., v1.0.0)"
         required: true
         type: string
 
 permissions:
-  contents: write # Required for creating GitHub releases
+  contents: write
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   release:
-    runs-on: [blacksmith-8vcpu-ubuntu-2204, linux]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Clear space to remove unused folders
+      - name: Free disk space
         run: |
-          rm -rf /usr/share/dotnet
-          rm -rf /opt/ghc
-          rm -rf "/usr/local/share/boost"
-          rm -rf "$AGENT_TOOLSDIRECTORY"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h /
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: blacksmith docker layer cache
-        uses: useblacksmith/build-push-action@v1
-        with:
-          setup-only: true
-
-      - name: Set environment variables
+      - name: Determine version
         run: |
-          echo "DOCKERHUB_REPO=${{ vars.DOCKERHUB_REPO || 'humanik' }}" >> $GITHUB_ENV
-          echo "DOCKERHUB_IMG=${{ vars.DOCKERHUB_IMG || 'gemma-vllm-worker' }}" >> $GITHUB_ENV
-          echo "HUGGINGFACE_ACCESS_TOKEN=${{ secrets.HUGGINGFACE_ACCESS_TOKEN }}" >> $GITHUB_ENV
-
-          # Determine version based on trigger type
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            # Manual trigger: use input version
-            VERSION="${{ github.event.inputs.version }}"
-            echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
-            echo "IS_MANUAL_RELEASE=true" >> $GITHUB_ENV
+            echo "VERSION=${{ github.event.inputs.version }}" >> $GITHUB_ENV
           else
-            # Tag trigger: use tag name (remove refs/tags/ prefix)
-            VERSION=${GITHUB_REF#refs/tags/}
-            echo "RELEASE_VERSION=${VERSION}" >> $GITHUB_ENV
-            echo "IS_MANUAL_RELEASE=false" >> $GITHUB_ENV
+            echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
           fi
 
-      - name: Build and push the images to Docker Hub
-        uses: docker/bake-action@v2
+      - name: Build and push
+        uses: docker/build-push-action@v5
         with:
+          context: .
           push: true
-          set: |
-            *.args.DOCKERHUB_REPO=${{ env.DOCKERHUB_REPO }}
-            *.args.DOCKERHUB_IMG=${{ env.DOCKERHUB_IMG }}
-            *.args.RELEASE_VERSION=${{ env.RELEASE_VERSION }}
-            *.args.HUGGINGFACE_ACCESS_TOKEN=${{ env.HUGGINGFACE_ACCESS_TOKEN }}
+          tags: |
+            ghcr.io/${{ env.IMAGE_NAME }}:${{ env.VERSION }}
+            ghcr.io/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - name: Release Summary
+      - name: Summary
         run: |
-          echo "🚀 Release completed!"
-          echo "Version: ${{ env.RELEASE_VERSION }}"
-          echo "Docker Image: ${{ env.DOCKERHUB_REPO }}/${{ env.DOCKERHUB_IMG }}:${{ env.RELEASE_VERSION }}"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "Trigger: Manual workflow dispatch"
-          else
-            echo "Trigger: GitHub release (tag: ${{ github.ref_name }})"
-          fi
+          echo "### Release ${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "Image: \`ghcr.io/${{ env.IMAGE_NAME }}:${{ env.VERSION }}\`" >> $GITHUB_STEP_SUMMARY

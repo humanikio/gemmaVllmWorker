@@ -26,7 +26,7 @@ The model is baked into the image at build time (~7GB download during build). No
 ```bash
 export DOCKER_BUILDKIT=1
 
-docker build -t humanik/gemma-vllm-worker:latest .
+docker build -t ghcr.io/humanikio/gemmavllmworker:latest .
 ```
 
 The Dockerfile defaults to `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` with `/models` as the base path. No build args needed for our standard deployment.
@@ -36,11 +36,11 @@ The Dockerfile defaults to `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` with `/models`
 Push the image and create a RunPod Serverless endpoint:
 
 ```bash
-docker push humanik/gemma-vllm-worker:latest
+docker push ghcr.io/humanikio/gemmavllmworker:latest
 ```
 
 On RunPod, create a serverless endpoint with:
-- **Image**: `humanik/gemma-vllm-worker:latest`
+- **Image**: `ghcr.io/humanikio/gemmavllmworker:latest`
 - **GPU**: Any 24GB+ Ada or Ampere GPU (L4, RTX 4090, A10G, RTX 3090)
 - **Min workers**: 0 (scale to zero)
 - **Max workers**: as needed
