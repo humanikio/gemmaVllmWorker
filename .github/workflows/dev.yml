@@ -41,8 +41,8 @@ jobs:
 
       - name: Set environment variables
         run: |
-          echo "DOCKERHUB_REPO=${{ vars.DOCKERHUB_REPO || 'runpod' }}" >> $GITHUB_ENV
-          echo "DOCKERHUB_IMG=${{ vars.DOCKERHUB_IMG || 'worker-v1-vllm' }}" >> $GITHUB_ENV
+          echo "DOCKERHUB_REPO=${{ vars.DOCKERHUB_REPO || 'humanik' }}" >> $GITHUB_ENV
+          echo "DOCKERHUB_IMG=${{ vars.DOCKERHUB_IMG || 'gemma-vllm-worker' }}" >> $GITHUB_ENV
           echo "HUGGINGFACE_ACCESS_TOKEN=${{ secrets.HUGGINGFACE_ACCESS_TOKEN }}" >> $GITHUB_ENV
           # Convert branch name to safe docker tag (replace / with -)
           BRANCH_NAME="${GITHUB_REF##refs/heads/}"
