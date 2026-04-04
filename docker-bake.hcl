@@ -1,5 +1,5 @@
 variable "DOCKERHUB_REPO" {
-  default = "synthcore"
+  default = "humanik"
 }
 
 variable "DOCKERHUB_IMG" {

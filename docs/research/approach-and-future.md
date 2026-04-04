@@ -6,7 +6,7 @@ Our strategy for deploying Gemma 4 MoE as a cost-efficient "free LLM" tier, and 
 
 ### Goal
 
-Offer free LLM inference to Synthcore users by self-hosting the most cost-efficient model possible on RunPod serverless.
+Offer free LLM inference to Humanik users by self-hosting the most cost-efficient model possible on RunPod serverless.
 
 ### Why Gemma 4 26B-A4B MoE + AWQ 4-bit
 
@@ -25,7 +25,7 @@ Offer free LLM inference to Synthcore users by self-hosting the most cost-effici
 ### Architecture
 
 ```
-User request → Synthcore API → RunPod Serverless Endpoint
+User request → Humanik API → RunPod Serverless Endpoint
                                   │
                                   ▼
                           synthcore-worker-gemma (this repo)
@@ -132,7 +132,7 @@ Once the weight loading (#38886) and performance (#38887) issues are resolved, t
 Starting at `MAX_MODEL_LEN=8192` for cost reasons. The model supports 262K. As usage patterns become clear, we can increase this — each doubling roughly doubles KV cache memory.
 
 **10. LoRA fine-tuning**
-The worker already supports LoRA adapters (`LORA_MODULES` env var). Could fine-tune Gemma 4 MoE on Synthcore-specific tasks (code generation, platform-specific knowledge) without retraining the full model.
+The worker already supports LoRA adapters (`LORA_MODULES` env var). Could fine-tune Gemma 4 MoE on Humanik-specific tasks (code generation, platform-specific knowledge) without retraining the full model.
 
 ## Lessons Learned (April 4, 2026 Testing)
 

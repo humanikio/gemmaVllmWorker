@@ -1,5 +1,5 @@
 {
-  "title": "Synthcore Gemma 4 MoE Worker",
+  "title": "Humanik Gemma 4 MoE Worker",
   "description": "Cost-efficient Gemma 4 26B-A4B MoE inference (AWQ 4-bit) — OpenAI-compatible API powered by vLLM 0.19.0",
   "type": "serverless",
   "category": "language",

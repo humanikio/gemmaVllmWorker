@@ -1,4 +1,4 @@
-# Synthcore Worker — Gemma 4 MoE
+# Humanik Worker — Gemma 4 MoE
 
 ## Research
 
