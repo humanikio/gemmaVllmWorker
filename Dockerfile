@@ -57,4 +57,5 @@ RUN --mount=type=secret,id=HF_TOKEN,required=false \
     fi && \
     python3 /src/download_model.py
 
-CMD ["python3", "/src/handler.py"]
+EXPOSE 8000
+CMD ["python3", "/src/server.py"]
