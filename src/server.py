@@ -47,8 +47,9 @@ async def lifespan(app: FastAPI):
         start_heartbeat, mark_healthy, graceful_shutdown,
         start_idle_timeout, increment_load, decrement_load,
     )
+    from heartbeat.config import is_heartbeat_enabled
 
-    # Phase 1: Start heartbeat (status: booting)
+    # Phase 1: Start heartbeat (status: booting) — no-op if NEXUS_* vars missing
     start_heartbeat()
 
     # Phase 2: Initialize vLLM engines
@@ -62,18 +63,23 @@ async def lifespan(app: FastAPI):
         log.info("vLLM engines initialized successfully")
     except Exception as e:
         log.error(f"Engine startup failed: {e}\n{traceback.format_exc()}")
-        await graceful_shutdown("unhealthy")
+        if is_heartbeat_enabled():
+            await graceful_shutdown("unhealthy")
         sys.exit(1)
 
-    # Phase 3: Mark healthy — ALB starts routing traffic
-    await mark_healthy()
+    # Phase 3-4 only when running under Humanik Cloud
+    if is_heartbeat_enabled():
+        # Phase 3: Mark healthy — ALB starts routing traffic
+        await mark_healthy()
 
-    # Phase 4: Start idle timeout monitor
-    async def _idle_shutdown():
-        await graceful_shutdown("idle-timeout")
-        sys.exit(0)
+        # Phase 4: Start idle timeout monitor
+        async def _idle_shutdown():
+            await graceful_shutdown("idle-timeout")
+            sys.exit(0)
 
-    start_idle_timeout(_idle_shutdown)
+        start_idle_timeout(_idle_shutdown)
+    else:
+        log.info("Standalone mode — no heartbeat, no idle timeout")
 
     yield
 
