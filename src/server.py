@@ -1,8 +1,8 @@
 """
 gemmaVllmWorker — FastAPI server for Gemma 4 MoE inference.
 
-Replaces the RunPod serverless handler with a standalone HTTP server
-that integrates with Nexus control plane via HMAC auth.
+Standalone HTTP server that integrates with Humanik Cloud control plane
+via HMAC auth and Redis heartbeat.
 
 Endpoints:
   POST /v1/chat/completions  — OpenAI-compatible chat (streaming + non-streaming)
@@ -10,13 +10,19 @@ Endpoints:
   GET  /v1/models            — List available models
   GET  /health               — Health check (no auth)
   GET  /ready                — Readiness check (no auth)
+
+Boot sequence:
+  1. Start heartbeat (status: booting) — ALB sees us but won't route yet
+  2. Initialize vLLM engines (~2 min)
+  3. Mark healthy — ALB starts routing traffic
+  4. Start idle timeout monitor
 """
 
 import sys
 import os
 import json
 import logging
-import multiprocessing
+import signal
 import traceback
 from contextlib import asynccontextmanager
 
@@ -34,9 +40,18 @@ _engines_ready = False
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize vLLM engines on startup, cleanup on shutdown."""
+    """Boot sequence: heartbeat → engine init → mark healthy → idle timeout."""
     global vllm_engine, openai_engine, _engines_ready
 
+    from heartbeat import (
+        start_heartbeat, mark_healthy, graceful_shutdown,
+        start_idle_timeout, increment_load, decrement_load,
+    )
+
+    # Phase 1: Start heartbeat (status: booting)
+    start_heartbeat()
+
+    # Phase 2: Initialize vLLM engines
     try:
         from engine import vLLMEngine, OpenAIvLLMEngine
 
@@ -47,11 +62,24 @@ async def lifespan(app: FastAPI):
         log.info("vLLM engines initialized successfully")
     except Exception as e:
         log.error(f"Engine startup failed: {e}\n{traceback.format_exc()}")
+        await graceful_shutdown("unhealthy")
         sys.exit(1)
+
+    # Phase 3: Mark healthy — ALB starts routing traffic
+    await mark_healthy()
+
+    # Phase 4: Start idle timeout monitor
+    async def _idle_shutdown():
+        await graceful_shutdown("idle-timeout")
+        sys.exit(0)
+
+    start_idle_timeout(_idle_shutdown)
 
     yield
 
+    # Shutdown
     log.info("Shutting down")
+    await graceful_shutdown("shutdown")
 
 
 # ── App ──────────────────────────────────────────────────────────────
@@ -67,14 +95,16 @@ app.add_middleware(CpHmacMiddleware, exempt_paths=["/health", "/ready"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    from heartbeat import get_status, get_load
+    return {"status": "ok", "heartbeat": get_status(), "load": get_load()}
 
 
 @app.get("/ready")
 async def ready():
+    from heartbeat import get_status
     if not _engines_ready:
-        return JSONResponse(status_code=503, content={"status": "loading"})
-    return {"status": "ready"}
+        return JSONResponse(status_code=503, content={"status": "loading", "heartbeat": get_status()})
+    return {"status": "ready", "heartbeat": get_status()}
 
 
 # ── OpenAI-compatible routes ─────────────────────────────────────────
@@ -98,6 +128,8 @@ async def models():
 
 async def _handle_openai(request: Request, route: str):
     """Route an OpenAI-format request through the vLLM engine."""
+    from heartbeat import increment_load, decrement_load, touch_activity
+
     try:
         body = await request.json()
     except Exception:
@@ -111,18 +143,27 @@ async def _handle_openai(request: Request, route: str):
         "openai_input": body,
     })
 
-    if is_stream:
-        return StreamingResponse(
-            _stream_response(job_input),
-            media_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "Connection": "keep-alive",
-                "X-Accel-Buffering": "no",
-            },
-        )
-    else:
-        return await _non_stream_response(job_input)
+    increment_load()
+    touch_activity()
+    try:
+        if is_stream:
+            return StreamingResponse(
+                _stream_response(job_input, decrement_load),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "X-Accel-Buffering": "no",
+                },
+            )
+        else:
+            try:
+                return await _non_stream_response(job_input)
+            finally:
+                decrement_load()
+    except Exception:
+        decrement_load()
+        raise
 
 
 async def _non_stream_response(job_input):
@@ -145,7 +186,7 @@ async def _non_stream_response(job_input):
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-async def _stream_response(job_input):
+async def _stream_response(job_input, on_complete=None):
     """Yield SSE chunks from the vLLM engine."""
     try:
         async for batch in openai_engine.generate(job_input):
@@ -154,10 +195,8 @@ async def _stream_response(job_input):
                 return
 
             if isinstance(batch, str):
-                # raw_openai_output mode — already SSE formatted
                 yield batch
             elif isinstance(batch, list):
-                # list of SSE strings
                 for chunk in batch:
                     if isinstance(chunk, str):
                         yield chunk
@@ -171,6 +210,9 @@ async def _stream_response(job_input):
         log.error(f"Streaming error: {e}\n{traceback.format_exc()}")
         _check_cuda_fatal(e)
         yield f"data: {json.dumps({'error': str(e)})}\n\n"
+    finally:
+        if on_complete:
+            on_complete()
 
 
 def _check_cuda_fatal(e: Exception):
