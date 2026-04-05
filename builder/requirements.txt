@@ -12,3 +12,4 @@ transformers>=5.5.0
 bitsandbytes>=0.45.0
 kernels
 torch-c-dlpack-ext
+redis>=5.0.0
