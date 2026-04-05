@@ -244,9 +244,15 @@ class OpenAIvLLMEngine(vLLMEngine):
         )
         await self.serving_models.init_static_loras()
 
-        # Get chat template from vLLM tokenizer if available
+        # Get chat template — try vLLM's engine tokenizer first (most reliable),
+        # then fall back to our wrapper
         chat_template = None
-        if self.tokenizer and hasattr(self.tokenizer, 'tokenizer'):
+        try:
+            engine_tokenizer = await self.llm.get_tokenizer()
+            chat_template = getattr(engine_tokenizer, 'chat_template', None)
+        except Exception:
+            pass
+        if chat_template is None and self.tokenizer and hasattr(self.tokenizer, 'tokenizer'):
             chat_template = self.tokenizer.tokenizer.chat_template
 
         # vLLM 0.19.0 requires OpenAIServingRender as a shared dependency
