@@ -163,14 +163,25 @@ All config is baked into the image via env vars. Override at runtime if needed. 
 
 Any vLLM `AsyncEngineArgs` field can be set by uppercasing its name (e.g., `ENFORCE_EAGER=true`, `ENABLE_CHUNKED_PREFILL=true`).
 
+## Humanik Cloud Integration (Optional)
+
+This worker includes optional integration with [Humanik Cloud](https://humanik.io) for managed pod orchestration. When Humanik Cloud env vars are present, the worker activates:
+
+- **HMAC auth** — Control plane signature verification on all inference endpoints
+- **Heartbeat** — Redis-based instance discovery for ALB routing
+- **Idle timeout** — Auto-terminates pods after configurable idle period (scale-to-zero)
+
+**These features are completely optional.** Without the env vars, the worker runs as a standard OpenAI-compatible vLLM server. See [docs/humanik-cloud/](docs/humanik-cloud/) for details.
+
 ## Docs
 
 See [docs/README.md](docs/README.md) for full documentation:
 
+- **Humanik Cloud** — HMAC auth, heartbeat, idle timeout, architecture
 - **Research** — Quantization deep-dive, Gemma 4 architecture, vLLM support status, available quants survey
 - **Guides** — RunPod SSH dev flow for GPU pod testing
 - **Reference** — Configuration reference, development conventions
 
 ## Based On
 
-Forked from [runpod-workers/worker-vllm](https://github.com/runpod-workers/worker-vllm). Core engine architecture (handler, vLLM wrapper, OpenAI compat layer) comes from upstream. Configured and tailored for Gemma 4 MoE serving on Humanik's infrastructure.
+Forked from [runpod-workers/worker-vllm](https://github.com/runpod-workers/worker-vllm). Core engine architecture (handler, vLLM wrapper, OpenAI compat layer) comes from upstream. Tailored for Gemma 4 MoE serving with optional [Humanik Cloud](https://humanik.io) orchestration.
