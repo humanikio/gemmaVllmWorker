@@ -57,5 +57,17 @@ RUN --mount=type=secret,id=HF_TOKEN,required=false \
     fi && \
     python3 /src/download_model.py
 
+# Patch tokenizer_config.json — the cyankiwi AWQ quant stripped the chat_template.
+# Download the complete config from unsloth's ungated mirror and overwrite.
+RUN python3 -c "\
+import json, shutil; \
+from huggingface_hub import hf_hub_download; \
+d = json.load(open('/local_model_args.json')); \
+dest = d['TOKENIZER_NAME'] + '/tokenizer_config.json'; \
+src = hf_hub_download('unsloth/gemma-4-26B-A4B-it', 'tokenizer_config.json'); \
+shutil.copy(src, dest); \
+print(f'Patched chat template into {dest}') \
+"
+
 EXPOSE 8000
 CMD ["python3", "/src/server.py"]
