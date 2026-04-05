@@ -1,0 +1,1 @@
+from middleware.cp_hmac_auth import verify_cp_hmac
