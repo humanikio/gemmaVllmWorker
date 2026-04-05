@@ -88,6 +88,21 @@ the quantization method specified in the `quantization` argument (awq).
 
 Just set `MODEL_NAME` and let vLLM handle quantization detection.
 
-### Confirmed Working (April 4, 2026)
+### Missing Chat Template
 
-Tested on RunPod L40S (48GB, Ada sm_89) with vLLM 0.19.0 + transformers 5.5.0. Model loads, serves OpenAI-compatible chat completions, generates quality code output.
+The `cyankiwi` quant also stripped the `chat_template` field from `tokenizer_config.json`. This is a Jinja2 template (~12K chars) that tells vLLM how to format chat messages into the token format the model expects — system/user/assistant turns, tool call syntax, thinking blocks, multimodal placeholders, etc.
+
+Without it, `/v1/chat/completions` fails with:
+```
+As of transformers v4.44, default chat template is no longer allowed
+```
+
+**Fix**: We vendor the complete `tokenizer_config.json` from Google's original model (sourced from [unsloth/gemma-4-26B-A4B-it](https://huggingface.co/unsloth/gemma-4-26B-A4B-it), an ungated mirror) in the `model/` directory. The Dockerfile patches it into the model snapshot at build time, overwriting the incomplete version from `cyankiwi`.
+
+The chat template is model-family-level — identical between the original Google model, the unsloth mirror, and any quant. Quantization only changes weight precision, not tokenizer behavior. This is a safe patch.
+
+If we ever switch quant providers, check whether the new quant includes `chat_template` in its `tokenizer_config.json`. If it does, the `model/` override can be removed.
+
+### Confirmed Working (April 5, 2026)
+
+Tested on RunPod L40S (48GB, Ada sm_89) with vLLM 0.19.0 + transformers 5.5.0. Model loads, serves OpenAI-compatible chat completions with HMAC auth, generates quality code output. Completions endpoint (`/v1/completions`) and models endpoint (`/v1/models`) confirmed working.

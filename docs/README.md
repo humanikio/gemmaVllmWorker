@@ -16,6 +16,12 @@ How to develop, test, and deploy the worker.
 
 - [RunPod SSH Dev Flow](guides/runpod-ssh-dev-flow.md) — Install runpodctl, spin up a GPU pod, SSH in, test the worker on real hardware
 
+## Model Assets (`model/`)
+
+Build-time assets patched into the Docker image.
+
+- **`tokenizer_config.json`** — Complete tokenizer config with chat template, sourced from [unsloth/gemma-4-26B-A4B-it](https://huggingface.co/unsloth/gemma-4-26B-A4B-it). The `cyankiwi` AWQ quant we use stripped the `chat_template` field, which vLLM requires for `/v1/chat/completions`. This file overwrites the incomplete one at build time. See [Available Quants — Missing Chat Template](research/available-quants.md#missing-chat-template) for details.
+
 ## Reference
 
 Upstream worker-vllm documentation (from runpod-workers/worker-vllm).

@@ -49,6 +49,7 @@ ENV MAX_MODEL_LEN=8192 \
     PYTHONPATH="/:/vllm-workspace"
 
 COPY src /src
+COPY model/tokenizer_config.json /tmp/tokenizer_config.json
 
 # Download model weights at build time (bake into image)
 RUN --mount=type=secret,id=HF_TOKEN,required=false \
@@ -57,16 +58,16 @@ RUN --mount=type=secret,id=HF_TOKEN,required=false \
     fi && \
     python3 /src/download_model.py
 
-# Patch tokenizer_config.json — the cyankiwi AWQ quant stripped the chat_template.
-# Download the complete config from unsloth's ungated mirror and overwrite.
+# Patch tokenizer_config.json — the cyankiwi AWQ quant stripped the chat_template
+# field required for /v1/chat/completions. We vendor the complete config from
+# Google's original model (sourced via unsloth's ungated mirror) in model/.
+# See docs/research/available-quants.md for details.
 RUN python3 -c "\
 import json, shutil; \
-from huggingface_hub import hf_hub_download; \
 d = json.load(open('/local_model_args.json')); \
 dest = d['TOKENIZER_NAME'] + '/tokenizer_config.json'; \
-src = hf_hub_download('unsloth/gemma-4-26B-A4B-it', 'tokenizer_config.json'); \
-shutil.copy(src, dest); \
-print(f'Patched chat template into {dest}') \
+shutil.copy('/tmp/tokenizer_config.json', dest); \
+print(f'Patched tokenizer_config.json into {dest}') \
 "
 
 EXPOSE 8000
