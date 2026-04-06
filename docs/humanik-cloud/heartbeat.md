@@ -19,7 +19,7 @@ Every 10 seconds, the worker writes a Redis hash with instance metadata and sets
 | `providerRouting` | JSON string | `{"provider":"runpod","podId":"abc123"}` — how to reach this instance |
 | `load` | string | Current concurrent request count |
 | `lastHeartbeat` | string | Unix millisecond timestamp |
-| `status` | string | `booting`, `healthy`, `draining`, or `unhealthy` |
+| `status` | string | `booting`, `healthy`, `draining`, `paused`, or `unhealthy` |
 | `region` | string | Datacenter region |
 | `startedAt` | string | Instance boot time (Unix ms) |
 | `customMetadata` | JSON string | Extensible metadata |
@@ -34,17 +34,20 @@ Pod created → heartbeat starts → status: booting
                                     ↓
               vLLM engine loaded → status: healthy (ALB routes traffic)
                                     ↓
-              shutdown signal   → status: draining (finish in-flight)
+              idle timeout       → signal CP → CP calls stopPod
                                     ↓
-              deregister        → removed from Redis
+              CP sets status     → status: paused (24h TTL, no heartbeats)
+                                    ↓
+              next request       → CP calls resumePod → status: booting → healthy
 ```
 
-| Status | ALB Behavior |
-|--------|-------------|
-| `booting` | Visible but not routable — prevents ALB from spawning duplicates |
-| `healthy` | Routable — receives traffic |
-| `draining` | In-flight only — no new requests |
-| `unhealthy` | Not routable |
+| Status | ALB Behavior | TTL |
+|--------|-------------|-----|
+| `booting` | Visible but not routable — prevents duplicate spawns | coldStartTimeoutMs (900s) |
+| `healthy` | Routable — receives traffic | 30s (heartbeat refreshed) |
+| `draining` | In-flight only — no new requests | 30s |
+| `paused` | Not routable — resumable on next request | 24h (no heartbeats) |
+| `unhealthy` | Not routable | 30s |
 
 ## Load Tracking
 
@@ -52,7 +55,7 @@ The worker tracks concurrent requests via `increment_load()` / `decrement_load()
 
 ## Termination Signals
 
-When the worker shuts down (idle timeout, SIGTERM, or unhealthy), it publishes a message to Redis:
+When the worker shuts down, it publishes a message to Redis:
 
 **Channel**: `instance:terminate:{serviceId}`
 
@@ -67,15 +70,39 @@ When the worker shuts down (idle timeout, SIGTERM, or unhealthy), it publishes a
 }
 ```
 
-The control plane subscribes to this channel and destroys the pod via the RunPod API.
+The control plane subscribes to this channel and acts based on `reason`:
+
+| Reason | CP Action |
+|--------|-----------|
+| `idle-timeout` | `stopPod` (pause, keep disk) + set Redis status='paused' |
+| `shutdown` | `destroyPod` (full termination) + remove from Redis |
+| `unhealthy` | `destroyPod` (full termination) + remove from Redis |
 
 ## Graceful Shutdown Sequence
 
-1. Stop heartbeat interval
-2. Stop idle timeout monitor
-3. Publish termination signal to Redis
-4. Deregister from Redis (delete hash + remove from active set)
-5. Close Redis connection
+Shutdown behavior depends on the reason:
+
+### idle-timeout (RunPod pause)
+1. Set `_shutdown_signaled = True` (guards against duplicate signals)
+2. Stop heartbeat interval
+3. Stop idle timeout monitor
+4. Publish termination signal (reason=idle-timeout)
+5. Do NOT deregister — CP needs the hash intact to transition to 'paused'
+6. Wait for SIGTERM from RunPod (after CP calls stopPod)
+7. SIGTERM arrives → lifespan exit calls `graceful_shutdown("shutdown")`
+8. Guard detects `_shutdown_signaled` → skips signal/deregister, closes Redis
+
+### shutdown / unhealthy (full termination)
+1. Set `_shutdown_signaled = True`
+2. Stop heartbeat interval
+3. Stop idle timeout monitor
+4. Publish termination signal
+5. Deregister from Redis (delete hash + remove from active set)
+6. Close Redis connection
+
+### Why the shutdown guard exists
+
+After idle-timeout, RunPod stops the container (SIGTERM). Uvicorn catches SIGTERM and runs the lifespan exit, which calls `graceful_shutdown("shutdown")` a second time. Without the guard, this would publish a `shutdown` signal to the CP, causing it to destroy the pod that was just paused. The `_shutdown_signaled` flag prevents this double-signal.
 
 ## Without Humanik Cloud
 
@@ -85,7 +112,7 @@ When `NEXUS_TENANT_ID`, `NEXUS_SERVICE_ID`, `NEXUS_INSTANCE_ID`, or `NEXUS_REDIS
 
 | File | Role |
 |------|------|
-| `src/heartbeat/__init__.py` | Start/stop lifecycle, graceful shutdown |
+| `src/heartbeat/__init__.py` | Start/stop lifecycle, graceful shutdown, shutdown guard |
 | `src/heartbeat/config.py` | Reads env vars, builds Redis keys and routing JSON |
 | `src/heartbeat/heartbeat_service.py` | Redis writes, status transitions, termination signals |
 | `src/heartbeat/load_tracker.py` | Concurrent request counter, idle timeout monitor |
