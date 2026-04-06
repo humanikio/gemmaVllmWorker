@@ -46,8 +46,9 @@ def start_heartbeat() -> None:
     if not is_heartbeat_enabled():
         return
 
-    # Send initial heartbeat immediately, then start loop
-    loop = asyncio.get_event_loop()
+    # Must use get_running_loop() — called from inside an async lifespan,
+    # get_event_loop() can return a stale/different loop in Python 3.10+
+    loop = asyncio.get_running_loop()
     loop.create_task(send_heartbeat())
     _heartbeat_task = loop.create_task(_heartbeat_loop())
 

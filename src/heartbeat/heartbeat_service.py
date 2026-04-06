@@ -69,7 +69,7 @@ async def send_heartbeat() -> None:
         pipe.sadd(keys["set_key"], INSTANCE_ID)
 
         await pipe.execute()
-        log.debug(f"Heartbeat sent: load={get_load()}, status={_current_status}")
+        log.info(f"Heartbeat sent: load={get_load()}, status={_current_status}")
     except Exception as e:
         log.error(f"Heartbeat failed: {e}")
 

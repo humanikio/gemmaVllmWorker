@@ -73,9 +73,13 @@ async def lifespan(app: FastAPI):
         await mark_healthy()
 
         # Phase 4: Start idle timeout monitor
+        # On idle-timeout: signal the CP via Redis, then wait for external kill.
+        # Fly: process.exit works (Fly auto-stops). RunPod: can't self-stop —
+        # the CP calls stopPod via RunPod API, which sends SIGTERM to the container.
         async def _idle_shutdown():
             await graceful_shutdown("idle-timeout")
-            sys.exit(0)
+            log.info("Idle shutdown signaled — waiting for external termination (SIGTERM)")
+            # Don't sys.exit — RunPod will kill the container after CP calls stopPod
 
         start_idle_timeout(_idle_shutdown)
     else:
