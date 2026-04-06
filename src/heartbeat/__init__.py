@@ -30,6 +30,7 @@ from heartbeat.load_tracker import (
 log = logging.getLogger("heartbeat")
 
 _heartbeat_task: asyncio.Task | None = None
+_shutdown_signaled: bool = False
 
 
 async def _heartbeat_loop() -> None:
@@ -78,7 +79,20 @@ async def graceful_shutdown(reason: str = "shutdown") -> None:
       2. Signal CP (reason=shutdown/unhealthy) — CP will call destroyPod
       3. Deregister from Redis (stops routing immediately)
       4. Close Redis connection
+
+    Guard: if we already sent idle-timeout, the SIGTERM that follows (from RunPod
+    stopping the container) triggers the lifespan exit which calls this again with
+    reason='shutdown'. We must skip it — the CP already handled the pause.
     """
+    global _shutdown_signaled
+
+    if _shutdown_signaled:
+        log.info(f"Shutdown already signaled, skipping duplicate (reason: {reason})")
+        # Still close Redis on the final exit
+        await close_redis()
+        return
+
+    _shutdown_signaled = True
     stop_heartbeat()
     stop_idle_timeout()
 
