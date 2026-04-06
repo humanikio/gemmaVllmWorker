@@ -226,11 +226,24 @@ async def _stream_response(job_input, on_complete=None):
 
 
 def _check_cuda_fatal(e: Exception):
-    """CUDA errors = worker is broken, exit to let orchestrator replace it."""
+    """CUDA errors = worker is broken, signal CP and exit."""
     error_str = str(e)
     if "CUDA" in error_str or "cuda" in error_str:
-        log.error("Terminating worker due to CUDA/GPU error")
-        sys.exit(1)
+        log.error("CUDA/GPU error detected — signaling CP and terminating")
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_fatal_shutdown())
+        except RuntimeError:
+            # No running loop — just exit
+            sys.exit(1)
+
+
+async def _fatal_shutdown():
+    """Signal unhealthy to CP, then exit."""
+    from heartbeat import graceful_shutdown
+    await graceful_shutdown("unhealthy")
+    sys.exit(1)
 
 
 # ── Entry point ──────────────────────────────────────────────────────

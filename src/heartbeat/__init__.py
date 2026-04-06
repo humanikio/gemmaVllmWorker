@@ -67,17 +67,30 @@ def stop_heartbeat() -> None:
 async def graceful_shutdown(reason: str = "shutdown") -> None:
     """Graceful shutdown sequence.
 
-    1. Stop sending heartbeats
-    2. Signal termination to control plane
-    3. Deregister from Redis
-    4. Close Redis connection
+    For idle-timeout (RunPod pause):
+      1. Stop heartbeat
+      2. Signal CP (reason=idle-timeout) — CP will call stopPod + pauseInstance
+      3. Do NOT deregister — CP needs the hash (providerRouting) to set status='paused'
+      4. Leave Redis connection open until SIGTERM arrives from RunPod
+
+    For shutdown/unhealthy (full termination):
+      1. Stop heartbeat
+      2. Signal CP (reason=shutdown/unhealthy) — CP will call destroyPod
+      3. Deregister from Redis (stops routing immediately)
+      4. Close Redis connection
     """
     stop_heartbeat()
     stop_idle_timeout()
 
     if is_heartbeat_enabled():
         await signal_termination(reason)
-        await deregister()
-        await close_redis()
+
+        if reason != "idle-timeout":
+            # Full termination — deregister and close
+            await deregister()
+            await close_redis()
+        else:
+            # Pause — leave hash intact for CP to transition to 'paused'
+            log.info("Skipping deregister (idle-timeout: CP will transition to paused)")
 
     log.info(f"Graceful shutdown complete (reason: {reason})")
