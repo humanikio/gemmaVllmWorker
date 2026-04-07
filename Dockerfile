@@ -1,14 +1,16 @@
-FROM nvidia/cuda:12.4.1-base-ubuntu22.04
+FROM nvidia/cuda:12.6.3-base-ubuntu22.04
 
 RUN apt-get update -y \
     && apt-get install -y python3-pip
 
-RUN ldconfig /usr/local/cuda-12.4/compat/
+RUN ldconfig /usr/local/cuda-12.6/compat/
 
 # Install vLLM 0.19.0 with FlashInfer (Gemma 4 support requires >= 0.19.0)
-# Using CUDA 12.4 for broad GPU driver compatibility (RTX 4090, L40S, A100, etc.)
+# vLLM 0.19.0 requires torch==2.10.0 which is available for cu126, cu128, cu129.
+# CUDA 12.6 is the lowest version that supports torch 2.10.0 and has broad
+# GPU driver compatibility (RTX 4090 driver 560+, L40S, A100, H100).
 RUN python3 -m pip install --upgrade pip && \
-    python3 -m pip install "vllm[flashinfer]==0.19.0" --extra-index-url https://download.pytorch.org/whl/cu124
+    python3 -m pip install "vllm[flashinfer]==0.19.0" --extra-index-url https://download.pytorch.org/whl/cu126
 
 # Install additional Python dependencies (after vLLM to avoid PyTorch version conflicts)
 COPY builder/requirements.txt /requirements.txt
