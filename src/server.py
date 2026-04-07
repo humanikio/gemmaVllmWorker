@@ -52,6 +52,26 @@ async def lifespan(app: FastAPI):
     # Phase 1: Start heartbeat (status: booting) — no-op if NEXUS_* vars missing
     start_heartbeat()
 
+    # Phase 1.5: Ensure model weights on volume (downloads from HF on first boot)
+    # On network volume: /workspace/models/ persists across stop/resume.
+    # First boot: ~5-10 min download. Subsequent boots: instant (cached on NVMe).
+    try:
+        from boot_model import ensure_model
+        model_args = ensure_model()
+
+        # Override MODEL_NAME and TOKENIZER_NAME with volume paths
+        if model_args.get("MODEL_NAME"):
+            os.environ["MODEL_NAME"] = model_args["MODEL_NAME"]
+            log.info(f"Model path: {model_args['MODEL_NAME']}")
+        if model_args.get("TOKENIZER_NAME"):
+            os.environ["TOKENIZER_NAME"] = model_args["TOKENIZER_NAME"]
+            log.info(f"Tokenizer path: {model_args['TOKENIZER_NAME']}")
+    except Exception as e:
+        log.error(f"Model download failed: {e}\n{traceback.format_exc()}")
+        if is_heartbeat_enabled():
+            await graceful_shutdown("unhealthy")
+        sys.exit(1)
+
     # Phase 2: Initialize vLLM engines
     try:
         from engine import vLLMEngine, OpenAIvLLMEngine

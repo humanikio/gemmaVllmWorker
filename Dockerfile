@@ -15,11 +15,12 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m pip install --upgrade -r /requirements.txt
 
 # ── Model configuration ─────────────────────────────────────────────
-# Model is baked into the image at build time for fastest cold starts.
-# The download_model.py script pulls weights from HuggingFace during build.
+# Model weights are NOT baked into the image.
+# On first boot, boot_model.py downloads weights to /workspace/models/
+# (network volume, NVMe SSD). Subsequent boots reuse cached weights.
+# This keeps the image at ~10GB instead of ~25GB.
 ARG MODEL_NAME="cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit"
 ARG TOKENIZER_NAME=""
-ARG BASE_PATH="/models"
 ARG MODEL_REVISION=""
 ARG TOKENIZER_REVISION=""
 
@@ -27,10 +28,10 @@ ENV MODEL_NAME=$MODEL_NAME \
     MODEL_REVISION=$MODEL_REVISION \
     TOKENIZER_NAME=$TOKENIZER_NAME \
     TOKENIZER_REVISION=$TOKENIZER_REVISION \
-    BASE_PATH=$BASE_PATH \
-    HF_DATASETS_CACHE="${BASE_PATH}/huggingface-cache/datasets" \
-    HUGGINGFACE_HUB_CACHE="${BASE_PATH}/huggingface-cache/hub" \
-    HF_HOME="${BASE_PATH}/huggingface-cache/hub" \
+    BASE_PATH="/workspace/models" \
+    HF_DATASETS_CACHE="/workspace/models/huggingface-cache/datasets" \
+    HUGGINGFACE_HUB_CACHE="/workspace/models/huggingface-cache/hub" \
+    HF_HOME="/workspace/models/huggingface-cache/hub" \
     HF_HUB_ENABLE_HF_TRANSFER=0 \
     # Suppress Ray metrics agent warnings
     RAY_METRICS_EXPORT_ENABLED=0 \
@@ -51,24 +52,9 @@ ENV MAX_MODEL_LEN=8192 \
 COPY src /src
 COPY model/tokenizer_config.json /tmp/tokenizer_config.json
 
-# Download model weights at build time (bake into image)
-RUN --mount=type=secret,id=HF_TOKEN,required=false \
-    if [ -f /run/secrets/HF_TOKEN ]; then \
-    export HF_TOKEN=$(cat /run/secrets/HF_TOKEN); \
-    fi && \
-    python3 /src/download_model.py
-
-# Patch tokenizer_config.json — the cyankiwi AWQ quant stripped the chat_template
-# field required for /v1/chat/completions. We vendor the complete config from
-# Google's original model (sourced via unsloth's ungated mirror) in model/.
-# See docs/research/available-quants.md for details.
-RUN python3 -c "\
-import json, shutil; \
-d = json.load(open('/local_model_args.json')); \
-dest = d['TOKENIZER_NAME'] + '/tokenizer_config.json'; \
-shutil.copy('/tmp/tokenizer_config.json', dest); \
-print(f'Patched tokenizer_config.json into {dest}') \
-"
+# No build-time model download — weights are downloaded at runtime to
+# the network volume (/workspace/models/) by boot_model.py.
+# See docs/humanik-cloud/idle-timeout.md for the volume architecture.
 
 EXPOSE 8000
 CMD ["python3", "/src/server.py"]

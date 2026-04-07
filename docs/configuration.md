@@ -179,13 +179,37 @@ Any vLLM `AsyncEngineArgs` field can be set via an environment variable using th
 - Values are automatically cast to the correct type (`int`, `float`, `bool`, `str`, or JSON for `dict`/`list`/`tuple`).
 - For a full list of available engine args, see the [vLLM AsyncEngineArgs documentation](https://docs.vllm.ai/en/latest/configuration/engine_args/).
 
-## Docker Build Arguments
+## Model Storage & Volume Settings
 
-These variables are used when building custom Docker images with models baked in:
+| Variable    | Default             | Type  | Description |
+| ----------- | ------------------- | ----- | ----------- |
+| `BASE_PATH` | `/workspace/models` | `str` | Directory for model weights and HuggingFace cache. On Humanik Cloud, injected via `runtimeEnv` from the service config manifest. |
+
+### Runtime Model Download (`boot_model.py`)
+
+On startup, `boot_model.ensure_model()` checks `{BASE_PATH}/local_model_args.json`:
+
+| State | Behavior |
+|-------|----------|
+| File exists | Skip download — weights already present (network volume, previous boot, or baked image) |
+| File missing | Download model + tokenizer from HuggingFace to `BASE_PATH`, patch tokenizer_config.json, write `local_model_args.json` |
+
+This makes the same Docker image work in any environment:
+
+| Environment | Volume | Download behavior |
+|-------------|--------|-------------------|
+| RunPod with network volume | NVMe at `/workspace` | First boot downloads (~5 min), subsequent boots instant |
+| RunPod without volume | Ephemeral at `/workspace` | Re-downloads on every cold start |
+| Local dev / other provider | Wherever `BASE_PATH` points | Downloads once to local disk |
+
+### How it connects to vLLM
+
+After `boot_model.ensure_model()` returns, `server.py` sets `MODEL_NAME` and `TOKENIZER_NAME` env vars to the resolved paths. `engine_args.py` picks these up via `ENV_ALIASES` (`MODEL_NAME` → `model` engine arg). The `/local_model_args.json` file is also written for backward compatibility with the baked-image `engine_args.py` loader.
+
+## Docker Build Arguments
 
 | Variable              | Default          | Type  | Description                                       |
 | --------------------- | ---------------- | ----- | ------------------------------------------------- |
-| `BASE_PATH`           | `/runpod-volume` | `str` | Storage directory for huggingface cache and model |
 | `WORKER_CUDA_VERSION` | `12.1.0`         | `str` | CUDA version for the worker image                 |
 
 ## Deprecated Variables
