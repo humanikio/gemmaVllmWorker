@@ -46,16 +46,9 @@ ENV MODEL_NAME=$MODEL_NAME \
 
 # ── Runtime defaults ────────────────────────────────────────────────
 # Do NOT set QUANTIZATION — model uses compressed-tensors, vLLM auto-detects
-#
-# Memory budget:
-#   L40S (48GB) — plenty of room at 0.90 / 8192 ctx
-#   RTX 4090 (24GB) — model weights ~16GB + KV cache + CUDA graphs = tight
-#   GPU_MEMORY_UTILIZATION=0.85 leaves ~3.5GB headroom on 24GB for CUDA graphs
-#   MAX_MODEL_LEN=4096 halves KV cache vs 8192 (sufficient for most chat)
-#
-# These can be overridden per-pod via runtimeEnv in the service config.
-ENV MAX_MODEL_LEN=4096 \
-    GPU_MEMORY_UTILIZATION=0.85 \
+# Requires 48GB+ VRAM GPU (L40S, L40, A6000, A100). 24GB cards OOM on warmup.
+ENV MAX_MODEL_LEN=8192 \
+    GPU_MEMORY_UTILIZATION=0.95 \
     ENABLE_PREFIX_CACHING=true \
     OPENAI_SERVED_MODEL_NAME_OVERRIDE=gemma-4-26b-moe \
     MAX_CONCURRENCY=30 \
