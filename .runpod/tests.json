@@ -81,7 +81,7 @@
     }
   ],
   "config": {
-    "gpuTypeId": "NVIDIA A100 80GB PCIe",
+    "gpuTypeId": "NVIDIA RTX A6000",
     "gpuCount": 1,
     "env": [
       { "key": "MAX_MODEL_LEN", "value": "8192" },
