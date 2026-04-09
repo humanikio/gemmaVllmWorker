@@ -1,5 +1,7 @@
 # gemmaVllmWorker
 
+[![Deploy on RunPod](https://api.runpod.io/badge/humanikio/gemmaVllmWorker)](https://console.runpod.io/hub/humanikio/gemmaVllmWorker)
+
 Self-hosted Gemma 4 26B MoE inference — OpenAI-compatible API with tool calling, SSE streaming, and optional Humanik Cloud orchestration.
 
 ## What This Is
