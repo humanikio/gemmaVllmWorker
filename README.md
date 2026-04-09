@@ -1,121 +1,120 @@
 # gemmaVllmWorker
 
-Humanik's self-hosted LLM inference worker — Gemma 4 26B-A4B MoE (AWQ 4-bit) on RunPod Serverless via vLLM.
+Self-hosted Gemma 4 26B MoE inference — OpenAI-compatible API with tool calling, SSE streaming, and optional Humanik Cloud orchestration.
 
 ## What This Is
 
-A RunPod Serverless worker that serves [Google Gemma 4 26B-A4B](https://huggingface.co/google/gemma-4-26b-a4b-it) — a Mixture-of-Experts model with 26B total params but only ~4B active per token. Quantized to 4-bit AWQ (compressed-tensors format) and baked into the Docker image for fast cold starts.
+A GPU inference worker serving [Google Gemma 4 26B-A4B](https://huggingface.co/google/gemma-4-26b-a4b-it) via vLLM with full OpenAI API compatibility. Runs standalone on any GPU or as a managed pool service through Humanik Cloud.
 
 | Spec | Value |
 |------|-------|
 | Model | `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` |
-| Architecture | MoE — 128 experts, top-8 routing |
-| Active params/token | ~4B |
-| VRAM | ~13 GB (fits 24GB GPU) |
-| Context | Up to 262K (default: 8192) |
+| Architecture | MoE — 128 experts, top-8 routing (~4B active params/token) |
+| Min VRAM | 48GB (24GB cards OOM on CUDA graph warmup) |
+| Context | 60K default (configurable, model supports up to 128K) |
 | API | OpenAI-compatible (`/v1/chat/completions`, `/v1/models`) |
-| Engine | vLLM 0.19.0 |
-| Quantization format | compressed-tensors (auto-detected by vLLM) |
+| Tool Calling | Native via vLLM `gemma4` parser |
+| Streaming | SSE (`text/event-stream`) |
+| Engine | vLLM 0.19.0 + FlashInfer |
+| CUDA | 12.6 (driver ≥560 required) |
+| Image | ~10GB slim (model weights downloaded at runtime) |
 
-## Deploy to RunPod
+## Two Ways to Run
 
-### Build the Image
+### 1. Standalone (Any GPU Provider)
 
-The model is baked into the image at build time (~7GB download during build). No HuggingFace download needed at runtime.
-
-```bash
-export DOCKER_BUILDKIT=1
-
-docker build -t ghcr.io/humanikio/gemmavllmworker:latest .
-```
-
-The Dockerfile defaults to `cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit` with `/models` as the base path. No build args needed for our standard deployment.
-
-### Deploy as Serverless Endpoint
-
-Push the image and create a RunPod Serverless endpoint:
+Deploy directly on RunPod, AWS, GCP, or bare metal. The worker runs as a standard HTTP server with no external dependencies.
 
 ```bash
-docker push ghcr.io/humanikio/gemmavllmworker:latest
+docker build -t gemmavllmworker .
+docker run --gpus all -p 8000:8000 gemmavllmworker
 ```
 
-On RunPod, create a serverless endpoint with:
-- **Image**: `ghcr.io/humanikio/gemmavllmworker:latest`
-- **GPU**: Any 24GB+ Ada or Ampere GPU (L4, RTX 4090, A10G, RTX 3090)
-- **Min workers**: 0 (scale to zero)
-- **Max workers**: as needed
+Model weights are downloaded on first boot to `/workspace/models/` (~15GB from HuggingFace). Subsequent boots reuse cached weights if the volume persists.
 
-All configuration is baked into the image. Override via env vars if needed:
+### 2. Humanik Cloud (Managed Pool Service)
 
-| Variable | Baked Default | Description |
-|----------|--------------|-------------|
-| `MAX_MODEL_LEN` | `8192` | Max context length |
+When deployed through [Humanik Cloud](https://humanik.cloud), the worker activates additional features:
+
+- **HMAC Auth** — Control plane signature verification on all endpoints
+- **Heartbeat** — Redis-based instance discovery for ALB routing
+- **Idle Timeout** — Auto-pause pods after configurable idle period
+- **Pause/Resume** — Stopped pods resume in ~2:45 (vs ~12 min cold start)
+- **Pool Service** — Shared across all tenants, no per-user GPU allocation
+- **Tool Calling** — Full OpenAI tool_calls support via vLLM's `gemma4` parser
+- **SSE Streaming** — End-to-end through the Nexus proxy chain
+
+These features activate automatically when Humanik Cloud env vars are present (`NEXUS_TENANT_ID`, `NEXUS_SERVICE_ID`, `NEXUS_INSTANCE_ID`, `NEXUS_REDIS_URL`). Without them, the worker runs as a plain vLLM server.
+
+#### Humanik Cloud Architecture
+
+```
+Client → NexusAPI → Control Plane → ALB → RunPod Pod (this worker)
+                                      ↓
+                                 Redis Registry (heartbeat, status, routing)
+```
+
+The worker reports health via Redis heartbeats every 10s. The ALB routes requests to healthy instances. On idle timeout, the worker signals the CP which pauses the pod (preserves disk). On the next request, the ALB resumes the paused pod (~2:45 warm start).
+
+See [docs/humanik-cloud/](docs/humanik-cloud/) for the full integration docs.
+
+## GPU Compatibility
+
+| GPU | VRAM | Status |
+|-----|------|--------|
+| RTX A6000 | 48GB | **Primary** — tested, confirmed working |
+| L40S | 48GB | **Works** — tested |
+| L40 | 48GB | Expected to work (same Ada arch) |
+| A100 | 80GB | Expected to work |
+| RTX 4090 | 24GB | **OOM** — CUDA graph warmup exceeds VRAM |
+| RTX 5090 | 32GB | **Incompatible** — Blackwell Marlin kernel PTX issue |
+
+## Configuration
+
+All config via environment variables. Override at pod creation or in docker run.
+
+### Core Settings
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MAX_MODEL_LEN` | `8192` | Max context length (set to `60000` via Humanik Cloud runtimeEnv) |
 | `GPU_MEMORY_UTILIZATION` | `0.95` | Fraction of GPU VRAM to use |
 | `MAX_CONCURRENCY` | `30` | Concurrent requests per worker |
 | `OPENAI_SERVED_MODEL_NAME_OVERRIDE` | `gemma-4-26b-moe` | Model name in API responses |
 | `ENABLE_PREFIX_CACHING` | `true` | Cache common prefixes across requests |
+| `BASE_PATH` | `/workspace/models` | Where model weights are stored/downloaded |
 
-**Do NOT set `QUANTIZATION`** — the model uses compressed-tensors format and vLLM auto-detects it. Setting `QUANTIZATION=awq` will cause a validation error.
+### Tool Calling
 
-### GPU Compatibility
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ENABLE_AUTO_TOOL_CHOICE` | `false` | Set `true` to accept `tool_choice: "auto"` |
+| `TOOL_CALL_PARSER` | — | Set to `gemma4` for native Gemma tool call parsing |
 
-| GPU | Arch | Status |
-|-----|------|--------|
-| L4 / L40S | Ada (sm_89) | **Works** (tested on L40S) |
-| RTX 4090 | Ada (sm_89) | **Works** |
-| A10G / RTX 3090 / A5000 | Ampere (sm_86) | Expected to work |
-| RTX 5090 | Blackwell (sm_12.0) | **FAILS** — Marlin kernel incompatible |
-| T4 / RTX 2080 Ti | Turing (sm_75) | **FAILS** — shared memory limits |
+Gemma 4 uses its own tool call format (`<|tool_call>call:name{args}<tool_call|>`) — vLLM's built-in `gemma4` parser converts this to standard OpenAI `tool_calls`. Do NOT use `hermes` — Gemma is not Hermes-compatible.
+
+### Humanik Cloud Settings (injected by control plane)
+
+| Variable | Description |
+|----------|-------------|
+| `NEXUS_TENANT_ID` | Tenant ID for this instance |
+| `NEXUS_SERVICE_ID` | Service ID |
+| `NEXUS_INSTANCE_ID` | Unique instance identifier |
+| `NEXUS_REDIS_URL` | Redis URL for heartbeat registry |
+| `CP_INSTANCE_HMAC_SECRET` | HMAC secret for request signing |
+| `IDLE_TIMEOUT_MINUTES` | Minutes before auto-pause (0 = persistent) |
+
+**Do NOT set `QUANTIZATION`** — the model uses compressed-tensors format, vLLM auto-detects it.
+
+See [docs/configuration.md](docs/configuration.md) for the full reference including all vLLM engine args.
 
 ## Usage
-
-### OpenAI-Compatible API
-
-Point any OpenAI SDK client at your RunPod endpoint:
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    api_key="your-runpod-api-key",
-    base_url="https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1",
-)
-
-response = client.chat.completions.create(
-    model="gemma-4-26b-moe",
-    messages=[{"role": "user", "content": "Write a Python fibonacci generator"}],
-    temperature=0.3,
-    max_tokens=500,
-)
-print(response.choices[0].message.content)
-```
-
-Streaming:
-
-```python
-stream = client.chat.completions.create(
-    model="gemma-4-26b-moe",
-    messages=[{"role": "user", "content": "Explain async/await in Python"}],
-    max_tokens=300,
-    stream=True,
-)
-for chunk in stream:
-    print(chunk.choices[0].delta.content or "", end="", flush=True)
-```
-
-List available models:
-
-```python
-models = client.models.list()
-print([m.id for m in models])
-```
 
 ### curl
 
 ```bash
-curl https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1/chat/completions \
+curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $RUNPOD_API_KEY" \
   -d '{
     "model": "gemma-4-26b-moe",
     "messages": [{"role": "user", "content": "Hello!"}],
@@ -123,65 +122,81 @@ curl https://api.runpod.ai/v2/<ENDPOINT_ID>/openai/v1/chat/completions \
   }'
 ```
 
-### Native vLLM API (non-OpenAI)
+### With Tool Calling
 
-For direct vLLM access without the OpenAI wrapper:
-
-```json
-{
-  "input": {
-    "prompt": "Explain what a neural network is.",
-    "sampling_params": {
-      "temperature": 0.7,
-      "max_tokens": 200
-    },
-    "stream": true
-  }
-}
+```bash
+curl http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemma-4-26b-moe",
+    "messages": [{"role": "user", "content": "List files in /workspace"}],
+    "tools": [{"type": "function", "function": {"name": "list_files", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}}],
+    "tool_choice": "auto"
+  }'
 ```
 
-Or with chat messages (auto-applies the model's chat template):
+### Python (OpenAI SDK)
 
-```json
-{
-  "input": {
-    "messages": [
-      {"role": "system", "content": "You are a helpful coding assistant."},
-      {"role": "user", "content": "Write a binary search in Rust."}
-    ],
-    "sampling_params": {
-      "temperature": 0.3,
-      "max_tokens": 500
-    }
-  }
-}
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+
+response = client.chat.completions.create(
+    model="gemma-4-26b-moe",
+    messages=[{"role": "user", "content": "Write a Python fibonacci generator"}],
+    max_tokens=500,
+)
+print(response.choices[0].message.content)
 ```
 
-## Configuration
+### Via Humanik Cloud (Pool Service)
 
-All config is baked into the image via env vars. Override at runtime if needed. See [docs/configuration.md](docs/configuration.md) for the full reference.
+```bash
+curl https://api.humanik.cloud/api/v1/proxy/v1/chat/completions \
+  -H "Authorization: Bearer $NEXUS_API_KEY" \
+  -H "X-Service-Id: gemmaWorker" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "gemma-4-26b-moe", "messages": [{"role": "user", "content": "Hello!"}]}'
+```
 
-Any vLLM `AsyncEngineArgs` field can be set by uppercasing its name (e.g., `ENFORCE_EAGER=true`, `ENABLE_CHUNKED_PREFILL=true`).
+## Model Weights
 
-## Humanik Cloud Integration (Optional)
+Weights are NOT baked into the Docker image. On first boot, `boot_model.py` downloads from HuggingFace to `BASE_PATH` (~15GB, ~5 min). Subsequent boots on the same volume skip the download.
 
-This worker includes optional integration with [Humanik Cloud](https://humanik.io) for managed pod orchestration. When Humanik Cloud env vars are present, the worker activates:
+- **With persistent volume:** Download once, reuse across restarts
+- **Without volume:** Re-downloads on each cold start
+- **Resume from pause:** No download needed (container disk preserved)
 
-- **HMAC auth** — Control plane signature verification on all inference endpoints
-- **Heartbeat** — Redis-based instance discovery for ALB routing
-- **Idle timeout** — Auto-terminates pods after configurable idle period (scale-to-zero)
+## Measured Timings (RTX A6000)
 
-**These features are completely optional.** Without the env vars, the worker runs as a standard OpenAI-compatible vLLM server. See [docs/humanik-cloud/](docs/humanik-cloud/) for details.
+| Phase | Time |
+|-------|------|
+| Cold start (first boot) | ~12-15 min |
+| Cold start (cached image) | ~7-10 min |
+| Resume from pause | ~2:45 |
+| Warm routing | <1s |
+| First request (lazy engine init) | ~20s |
+
+## Shutdown & Signals
+
+The worker handles shutdown signals differently based on the reason:
+
+| Signal | Action | Redis |
+|--------|--------|-------|
+| Idle timeout | Signal CP `idle-timeout` → CP pauses pod | Hash preserved for resume |
+| SIGTERM | Signal CP `shutdown` → CP destroys pod | Deregistered |
+| CUDA crash | Signal CP `unhealthy` → CP destroys pod | Deregistered |
+
+A `_shutdown_signaled` guard prevents duplicate signals — after idle-timeout, the subsequent SIGTERM from RunPod's `stopPod` is suppressed so the CP doesn't accidentally destroy the just-paused pod.
 
 ## Docs
 
-See [docs/README.md](docs/README.md) for full documentation:
-
-- **Humanik Cloud** — HMAC auth, heartbeat, idle timeout, architecture
-- **Research** — Quantization deep-dive, Gemma 4 architecture, vLLM support status, available quants survey
-- **Guides** — RunPod SSH dev flow for GPU pod testing
-- **Reference** — Configuration reference, development conventions
+- [Humanik Cloud Integration](docs/humanik-cloud/) — HMAC auth, heartbeat, idle timeout
+- [Configuration Reference](docs/configuration.md) — All env vars and vLLM engine args
+- [Research](docs/research/) — Quantization, Gemma 4 architecture, available quants
+- [Guides](docs/guides/) — RunPod SSH dev flow
 
 ## Based On
 
-Forked from [runpod-workers/worker-vllm](https://github.com/runpod-workers/worker-vllm). Core engine architecture (handler, vLLM wrapper, OpenAI compat layer) comes from upstream. Tailored for Gemma 4 MoE serving with optional [Humanik Cloud](https://humanik.io) orchestration.
+Forked from [runpod-workers/worker-vllm](https://github.com/runpod-workers/worker-vllm). Core vLLM serving architecture from upstream. Rebuilt for Gemma 4 MoE with runtime model download, pause/resume lifecycle, and [Humanik Cloud](https://humanik.cloud) orchestration.
