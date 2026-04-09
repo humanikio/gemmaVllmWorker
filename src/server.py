@@ -58,9 +58,12 @@ async def _boot_in_background():
     start_heartbeat()
 
     # Phase 1.5: Ensure model weights on volume
+    # run_in_executor keeps the asyncio event loop free so /ping can respond
+    # with 204 during the entire download — without this, the blocking download
+    # freezes the event loop and RunPod's health checker times out.
     try:
         from boot_model import ensure_model
-        model_args = ensure_model()
+        model_args = await asyncio.get_event_loop().run_in_executor(None, ensure_model)
 
         if model_args.get("MODEL_NAME"):
             os.environ["MODEL_NAME"] = model_args["MODEL_NAME"]
@@ -75,11 +78,13 @@ async def _boot_in_background():
         sys.exit(1)
 
     # Phase 2: Initialize vLLM engines
+    # vLLMEngine() blocks for ~2 min while loading weights + compiling CUDA graphs.
+    # run_in_executor keeps the event loop responsive throughout.
     try:
         from engine import vLLMEngine, OpenAIvLLMEngine
 
         log.info("Initializing vLLM engines...")
-        vllm_engine = vLLMEngine()
+        vllm_engine = await asyncio.get_event_loop().run_in_executor(None, vLLMEngine)
         openai_engine = OpenAIvLLMEngine(vllm_engine)
         _engines_ready = True
         log.info("vLLM engines initialized successfully")

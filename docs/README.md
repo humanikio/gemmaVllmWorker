@@ -14,6 +14,7 @@ Optional features that activate when deployed via [Humanik Cloud](https://humani
 How to develop, test, and deploy the worker.
 
 - [RunPod SSH Dev Flow](guides/runpod-ssh-dev-flow.md) — Install runpodctl, spin up a GPU pod, SSH in, test the worker on real hardware
+- [RunPod Hub Cold Start](guides/runpod-hub-cold-start.md) — Why `/ping` must stay responsive during model load, and how `run_in_executor` keeps the event loop free
 
 ## Research
 
