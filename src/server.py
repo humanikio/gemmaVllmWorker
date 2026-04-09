@@ -10,17 +10,22 @@ Endpoints:
   GET  /v1/models            — List available models
   GET  /health               — Health check (no auth)
   GET  /ready                — Readiness check (no auth)
+  GET  /ping                 — RunPod LB health check (204 loading, 200 ready)
 
 Boot sequence:
-  1. Start heartbeat (status: booting) — ALB sees us but won't route yet
-  2. Initialize vLLM engines (~2 min)
-  3. Mark healthy — ALB starts routing traffic
-  4. Start idle timeout monitor
+  Uvicorn starts → /ping returns 204 immediately
+  Background task:
+    1. Start heartbeat (status: booting)
+    2. Download model if needed (boot_model.py)
+    3. Initialize vLLM engines (~2 min)
+    4. Mark healthy → /ping returns 200, ALB starts routing
+    5. Start idle timeout monitor
 """
 
 import sys
 import os
 import json
+import asyncio
 import logging
 import signal
 import traceback
@@ -32,34 +37,31 @@ from fastapi.responses import JSONResponse, StreamingResponse
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("gemma-worker")
 
-# ── Globals (initialized in lifespan) ────────────────────────────────
+# ── Globals (initialized in background) ────────────────────────────
 vllm_engine = None
 openai_engine = None
 _engines_ready = False
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Boot sequence: heartbeat → engine init → mark healthy → idle timeout."""
+async def _boot_in_background():
+    """Background boot: model download + vLLM init. Runs AFTER uvicorn starts
+    so /ping is immediately accessible (returns 204 during loading)."""
     global vllm_engine, openai_engine, _engines_ready
 
     from heartbeat import (
         start_heartbeat, mark_healthy, graceful_shutdown,
-        start_idle_timeout, increment_load, decrement_load,
+        start_idle_timeout,
     )
     from heartbeat.config import is_heartbeat_enabled
 
     # Phase 1: Start heartbeat (status: booting) — no-op if NEXUS_* vars missing
     start_heartbeat()
 
-    # Phase 1.5: Ensure model weights on volume (downloads from HF on first boot)
-    # On network volume: /workspace/models/ persists across stop/resume.
-    # First boot: ~5-10 min download. Subsequent boots: instant (cached on NVMe).
+    # Phase 1.5: Ensure model weights on volume
     try:
         from boot_model import ensure_model
         model_args = ensure_model()
 
-        # Override MODEL_NAME and TOKENIZER_NAME with volume paths
         if model_args.get("MODEL_NAME"):
             os.environ["MODEL_NAME"] = model_args["MODEL_NAME"]
             log.info(f"Model path: {model_args['MODEL_NAME']}")
@@ -89,26 +91,26 @@ async def lifespan(app: FastAPI):
 
     # Phase 3-4 only when running under Humanik Cloud
     if is_heartbeat_enabled():
-        # Phase 3: Mark healthy — ALB starts routing traffic
         await mark_healthy()
 
-        # Phase 4: Start idle timeout monitor
-        # On idle-timeout: signal the CP via Redis, then wait for external kill.
-        # Fly: process.exit works (Fly auto-stops). RunPod: can't self-stop —
-        # the CP calls stopPod via RunPod API, which sends SIGTERM to the container.
         async def _idle_shutdown():
             await graceful_shutdown("idle-timeout")
             log.info("Idle shutdown signaled — waiting for external termination (SIGTERM)")
-            # Don't sys.exit — RunPod will kill the container after CP calls stopPod
 
         start_idle_timeout(_idle_shutdown)
     else:
         log.info("Standalone mode — no heartbeat, no idle timeout")
 
-    yield
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan: kick off background boot, yield immediately so uvicorn
+    accepts connections. /ping returns 204 until boot completes."""
+    boot_task = asyncio.create_task(_boot_in_background())
+    yield
     # Shutdown
     log.info("Shutting down")
+    from heartbeat import graceful_shutdown
     await graceful_shutdown("shutdown")
 
 
@@ -161,6 +163,8 @@ async def completions(request: Request):
 
 @app.get("/v1/models")
 async def models():
+    if not _engines_ready:
+        return JSONResponse(status_code=503, content={"error": "Model loading"})
     await openai_engine._ensure_engines_initialized()
     result = await openai_engine._handle_model_request()
     return JSONResponse(content=result)
@@ -168,6 +172,9 @@ async def models():
 
 async def _handle_openai(request: Request, route: str):
     """Route an OpenAI-format request through the vLLM engine."""
+    if not _engines_ready:
+        return JSONResponse(status_code=503, content={"error": "Model loading, please retry"})
+
     from heartbeat import increment_load, decrement_load, touch_activity
 
     try:
@@ -265,7 +272,6 @@ def _check_cuda_fatal(e: Exception):
             loop = asyncio.get_running_loop()
             loop.create_task(_fatal_shutdown())
         except RuntimeError:
-            # No running loop — just exit
             sys.exit(1)
 
 
@@ -280,6 +286,6 @@ async def _fatal_shutdown():
 if __name__ == "__main__":
     import uvicorn
 
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 80))
     log.info(f"Starting gemmaVllmWorker on port {port}")
     uvicorn.run(app, host="0.0.0.0", port=port)
