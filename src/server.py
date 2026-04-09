@@ -131,8 +131,12 @@ async def health():
 
 @app.get("/ping")
 async def ping():
-    """RunPod LB health check — must return 200 on the health port."""
-    return {"status": "ok"}
+    """RunPod LB health check.
+    200 = healthy (ready to serve), 204 = initializing (model loading).
+    RunPod measures cold start as time from first 204 to first 200."""
+    if not _engines_ready:
+        return JSONResponse(status_code=204, content=None)
+    return JSONResponse(status_code=200, content={"status": "ok"})
 
 
 @app.get("/ready")

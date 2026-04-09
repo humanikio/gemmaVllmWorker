@@ -47,7 +47,8 @@ ENV MODEL_NAME=$MODEL_NAME \
 # ── Runtime defaults ────────────────────────────────────────────────
 # Do NOT set QUANTIZATION — model uses compressed-tensors, vLLM auto-detects
 # Requires 48GB+ VRAM GPU (L40S, L40, A6000, A100). 24GB cards OOM on warmup.
-ENV MAX_MODEL_LEN=8192 \
+ENV PORT=80 \
+    MAX_MODEL_LEN=100000 \
     GPU_MEMORY_UTILIZATION=0.95 \
     ENABLE_PREFIX_CACHING=true \
     OPENAI_SERVED_MODEL_NAME_OVERRIDE=gemma-4-26b-moe \
@@ -61,5 +62,5 @@ COPY model/tokenizer_config.json /tmp/tokenizer_config.json
 # the network volume (/workspace/models/) by boot_model.py.
 # See docs/humanik-cloud/idle-timeout.md for the volume architecture.
 
-EXPOSE 8000
+EXPOSE 80
 CMD ["python3", "/src/server.py"]
