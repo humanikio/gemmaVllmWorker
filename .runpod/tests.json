@@ -81,7 +81,7 @@
     }
   ],
   "config": {
-    "gpuTypeId": "NVIDIA L40S",
+    "gpuTypeId": "NVIDIA A100 80GB PCIe",
     "gpuCount": 1,
     "env": [
       { "key": "MAX_MODEL_LEN", "value": "8192" },
