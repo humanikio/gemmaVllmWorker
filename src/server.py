@@ -48,6 +48,13 @@ async def _boot_in_background():
     so /ping is immediately accessible (returns 204 during loading)."""
     global vllm_engine, openai_engine, _engines_ready
 
+    # SKIP_MODEL_LOAD=true skips vLLM entirely — used in Hub health-check tests
+    # so the pod boots instantly without needing a 48GB GPU.
+    if os.environ.get("SKIP_MODEL_LOAD", "").lower() in ("1", "true", "yes"):
+        log.info("SKIP_MODEL_LOAD=true — skipping model download and vLLM init")
+        _engines_ready = True
+        return
+
     from heartbeat import (
         start_heartbeat, mark_healthy, graceful_shutdown,
         start_idle_timeout,
