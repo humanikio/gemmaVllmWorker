@@ -118,7 +118,7 @@ app = FastAPI(title="gemmaVllmWorker", lifespan=lifespan)
 # HMAC middleware — gates all routes except health checks
 from middleware.cp_hmac_auth import CpHmacMiddleware
 
-app.add_middleware(CpHmacMiddleware, exempt_paths=["/health", "/ready"])
+app.add_middleware(CpHmacMiddleware, exempt_paths=["/health", "/ready", "/ping"])
 
 
 # ── Health routes (no auth) ──────────────────────────────────────────
@@ -127,6 +127,12 @@ app.add_middleware(CpHmacMiddleware, exempt_paths=["/health", "/ready"])
 async def health():
     from heartbeat import get_status, get_load
     return {"status": "ok", "heartbeat": get_status(), "load": get_load()}
+
+
+@app.get("/ping")
+async def ping():
+    """RunPod LB health check — must return 200 on the health port."""
+    return {"status": "ok"}
 
 
 @app.get("/ready")
