@@ -81,7 +81,7 @@
     }
   ],
   "config": {
-    "gpuTypeId": "NVIDIA RTX A6000",
+    "gpuTypeId": "NVIDIA L40S",
     "gpuCount": 1,
     "env": [
       { "key": "MAX_MODEL_LEN", "value": "8192" },
