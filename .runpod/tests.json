@@ -7,81 +7,10 @@
         "openai_input": {}
       },
       "timeout": 900000
-    },
-    {
-      "name": "chat_completion_basic",
-      "input": {
-        "openai_route": "/v1/chat/completions",
-        "openai_input": {
-          "model": "gemma-4-26b-moe",
-          "messages": [
-            { "role": "user", "content": "What is 2+2? Answer in one word." }
-          ],
-          "max_tokens": 10,
-          "stream": false
-        }
-      },
-      "timeout": 900000
-    },
-    {
-      "name": "chat_completion_streaming",
-      "input": {
-        "openai_route": "/v1/chat/completions",
-        "openai_input": {
-          "model": "gemma-4-26b-moe",
-          "messages": [
-            { "role": "user", "content": "Write a Python function that checks if a number is prime." }
-          ],
-          "max_tokens": 300,
-          "temperature": 0.3,
-          "stream": true
-        }
-      },
-      "timeout": 900000
-    },
-    {
-      "name": "tool_calling",
-      "input": {
-        "openai_route": "/v1/chat/completions",
-        "openai_input": {
-          "model": "gemma-4-26b-moe",
-          "messages": [
-            { "role": "user", "content": "List files in /workspace. Use the list_files tool." }
-          ],
-          "tools": [
-            {
-              "type": "function",
-              "function": {
-                "name": "list_files",
-                "description": "List files in a directory",
-                "parameters": {
-                  "type": "object",
-                  "properties": {
-                    "path": { "type": "string", "description": "Directory path" }
-                  },
-                  "required": ["path"]
-                }
-              }
-            }
-          ],
-          "tool_choice": "auto",
-          "max_tokens": 100,
-          "stream": false
-        }
-      },
-      "timeout": 900000
-    },
-    {
-      "name": "models_list",
-      "input": {
-        "openai_route": "/v1/models",
-        "openai_input": {}
-      },
-      "timeout": 900000
     }
   ],
   "config": {
-    "gpuTypeId": "NVIDIA RTX A6000",
+    "gpuTypeId": "NVIDIA GeForce RTX 4090",
     "gpuCount": 1,
     "env": [
       { "key": "PORT", "value": "8080" },

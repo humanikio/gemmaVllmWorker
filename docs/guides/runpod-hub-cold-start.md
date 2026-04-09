@@ -65,6 +65,38 @@ With this in place:
 
 RunPod's official worker examples use the `runpod` Python SDK (`runpod.serverless.start(handler)`), which runs in its own blocking loop. The event loop issue only surfaces when building a custom FastAPI server that handles its own startup lifecycle. The 204/200 protocol is documented; the async constraint is not.
 
+## Hub Test Strategy
+
+RunPod Hub's test pipeline spins up a **fresh, isolated pod** from your Docker image for every test run. It does NOT hit your existing deployed serverless endpoint. Each test pod:
+
+1. Pulls the image
+2. Starts the container
+3. Sends the test inputs
+4. Tears the pod down
+
+### Why health-only tests
+
+This worker requires a 26B AWQ model (~14GB) which takes 2–4 minutes to download and another 2 minutes to load into VRAM. Completions tests would require the full model to be present and loaded before the test input is sent — this means:
+
+- The test pod needs a 48GB+ VRAM GPU (L40S / A6000 / A100)
+- Model download adds 4–6 minutes of cold start time
+- HMAC authentication (`CpHmacMiddleware`) blocks unauthenticated completions requests — the Hub test runner sends no HMAC headers and `CP_INSTANCE_HMAC_SECRET` is not set in the test environment
+
+`/health` is HMAC-exempt, responds immediately (no model needed), and proves the server started correctly. Completions correctness is tested separately against the deployed serverless endpoint where the model is pre-cached on the network volume and HMAC is configured.
+
+### Why RTX 4090
+
+A6000 (48GB) and L40S were unavailable in RunPod's test fleet across multiple retries. The RTX 4090 (24GB) is the most reliably available GPU. A 4090 is sufficient for a health-only test — no model is loaded.
+
+### `.runpod/tests.json` current state
+
+```json
+{
+  "tests": [{ "name": "health_check" }],
+  "config": { "gpuTypeId": "NVIDIA GeForce RTX 4090" }
+}
+```
+
 ## Related
 
 - `src/server.py` — `_boot_in_background()` where these calls live
