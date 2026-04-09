@@ -1,46 +1,45 @@
 {
   "title": "Humanik Gemma 4 MoE Worker",
-  "description": "Cost-efficient Gemma 4 26B-A4B MoE inference (AWQ 4-bit) — OpenAI-compatible API powered by vLLM 0.19.0",
+  "description": "Gemma 4 26B MoE inference (AWQ 4-bit) — OpenAI-compatible API with tool calling, SSE streaming, powered by vLLM 0.19.0. Runs standalone or as a Humanik Cloud managed pool service.",
   "type": "serverless",
   "category": "language",
   "config": {
     "runsOn": "GPU",
-    "containerDiskInGb": 50,
-    "gpuIds": "AMPERE_24,ADA_24",
+    "endpointType": "LB",
+    "containerDiskInGb": 20,
+    "gpuIds": "ADA_48,-NVIDIA GeForce RTX 4090",
     "gpuCount": 1,
-    "allowedCudaVersions": ["12.9", "12.8"],
+    "allowedCudaVersions": ["12.8", "12.7", "12.6"],
+    "presets": [
+      {
+        "name": "Standard (60K context)",
+        "defaults": {
+          "MAX_MODEL_LEN": 60000,
+          "GPU_MEMORY_UTILIZATION": 0.95,
+          "ENABLE_AUTO_TOOL_CHOICE": true,
+          "TOOL_CALL_PARSER": "gemma4"
+        }
+      },
+      {
+        "name": "Compact (8K context, faster boot)",
+        "defaults": {
+          "MAX_MODEL_LEN": 8192,
+          "GPU_MEMORY_UTILIZATION": 0.95,
+          "ENABLE_AUTO_TOOL_CHOICE": true,
+          "TOOL_CALL_PARSER": "gemma4"
+        }
+      }
+    ],
     "env": [
-      {
-        "key": "MODEL_NAME",
-        "input": {
-          "name": "Model",
-          "type": "string",
-          "description": "HuggingFace model ID",
-          "default": "cyankiwi/gemma-4-26B-A4B-it-AWQ-4bit",
-          "required": true
-        }
-      },
-      {
-        "key": "QUANTIZATION",
-        "input": {
-          "name": "Quantization",
-          "type": "string",
-          "description": "Quantization method",
-          "default": "awq",
-          "options": [
-            { "label": "AWQ", "value": "awq" },
-            { "label": "GPTQ", "value": "gptq" },
-            { "label": "None", "value": "None" }
-          ]
-        }
-      },
       {
         "key": "MAX_MODEL_LEN",
         "input": {
           "name": "Max Context Length",
           "type": "number",
-          "description": "Max sequence length. Higher = more KV cache VRAM. Start conservative on 24GB GPUs.",
-          "default": 8192
+          "description": "Max sequence length (tokens). Higher = more VRAM for KV cache. 60K fits on 48GB GPUs.",
+          "default": 60000,
+          "min": 1024,
+          "max": 128000
         }
       },
       {
@@ -54,37 +53,37 @@
         }
       },
       {
+        "key": "ENABLE_AUTO_TOOL_CHOICE",
+        "input": {
+          "name": "Enable Tool Calling",
+          "type": "boolean",
+          "description": "Allow tool_choice: auto in requests (OpenAI-compatible tool calling)",
+          "default": true,
+          "trueValue": "true",
+          "falseValue": "false"
+        }
+      },
+      {
+        "key": "TOOL_CALL_PARSER",
+        "input": {
+          "name": "Tool Call Parser",
+          "type": "string",
+          "description": "Tool call output parser. Must be 'gemma4' for Gemma models (NOT hermes).",
+          "default": "gemma4",
+          "options": [
+            { "label": "Gemma 4 (native)", "value": "gemma4" },
+            { "label": "Hermes", "value": "hermes" },
+            { "label": "None", "value": "" }
+          ]
+        }
+      },
+      {
         "key": "MAX_CONCURRENCY",
         "input": {
           "name": "Max Concurrency",
           "type": "number",
           "description": "Max concurrent requests per worker",
           "default": 30,
-          "advanced": true
-        }
-      },
-      {
-        "key": "DTYPE",
-        "input": {
-          "name": "Data Type",
-          "type": "string",
-          "description": "Model weight dtype",
-          "default": "float16",
-          "options": [
-            { "label": "auto", "value": "auto" },
-            { "label": "float16", "value": "float16" },
-            { "label": "bfloat16", "value": "bfloat16" }
-          ],
-          "advanced": true
-        }
-      },
-      {
-        "key": "ENFORCE_EAGER",
-        "input": {
-          "name": "Enforce Eager",
-          "type": "boolean",
-          "description": "Disable CUDA graphs (use if hitting memory issues)",
-          "default": false,
           "advanced": true
         }
       },
@@ -105,36 +104,18 @@
           "type": "boolean",
           "description": "Cache common prompt prefixes to speed up repeated requests",
           "default": true,
+          "trueValue": "true",
+          "falseValue": "false",
           "advanced": true
         }
       },
       {
-        "key": "RAW_OPENAI_OUTPUT",
+        "key": "BASE_PATH",
         "input": {
-          "name": "Raw OpenAI Output",
-          "type": "boolean",
-          "description": "Raw OpenAI SSE format for streaming (required for OpenAI compat)",
-          "default": true,
-          "advanced": true
-        }
-      },
-      {
-        "key": "DEFAULT_BATCH_SIZE",
-        "input": {
-          "name": "Streaming Batch Size",
-          "type": "number",
-          "description": "Max tokens per streaming HTTP chunk",
-          "default": 50,
-          "advanced": true
-        }
-      },
-      {
-        "key": "ENABLE_LOG_REQUESTS",
-        "input": {
-          "name": "Enable Log Requests",
-          "type": "boolean",
-          "description": "Log each request for debugging",
-          "default": false,
+          "name": "Model Storage Path",
+          "type": "string",
+          "description": "Directory for model weights. Uses /workspace for persistent volumes.",
+          "default": "/workspace/models",
           "advanced": true
         }
       }

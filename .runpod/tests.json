@@ -1,0 +1,97 @@
+{
+  "tests": [
+    {
+      "name": "health_check",
+      "input": {
+        "openai_route": "/health",
+        "openai_input": {}
+      },
+      "timeout": 10000
+    },
+    {
+      "name": "chat_completion_basic",
+      "input": {
+        "openai_route": "/v1/chat/completions",
+        "openai_input": {
+          "model": "gemma-4-26b-moe",
+          "messages": [
+            { "role": "user", "content": "What is 2+2? Answer in one word." }
+          ],
+          "max_tokens": 10,
+          "stream": false
+        }
+      },
+      "timeout": 60000
+    },
+    {
+      "name": "chat_completion_streaming",
+      "input": {
+        "openai_route": "/v1/chat/completions",
+        "openai_input": {
+          "model": "gemma-4-26b-moe",
+          "messages": [
+            { "role": "user", "content": "Write a Python function that checks if a number is prime." }
+          ],
+          "max_tokens": 300,
+          "temperature": 0.3,
+          "stream": true
+        }
+      },
+      "timeout": 60000
+    },
+    {
+      "name": "tool_calling",
+      "input": {
+        "openai_route": "/v1/chat/completions",
+        "openai_input": {
+          "model": "gemma-4-26b-moe",
+          "messages": [
+            { "role": "user", "content": "List files in /workspace. Use the list_files tool." }
+          ],
+          "tools": [
+            {
+              "type": "function",
+              "function": {
+                "name": "list_files",
+                "description": "List files in a directory",
+                "parameters": {
+                  "type": "object",
+                  "properties": {
+                    "path": { "type": "string", "description": "Directory path" }
+                  },
+                  "required": ["path"]
+                }
+              }
+            }
+          ],
+          "tool_choice": "auto",
+          "max_tokens": 100,
+          "stream": false
+        }
+      },
+      "timeout": 60000
+    },
+    {
+      "name": "models_list",
+      "input": {
+        "openai_route": "/v1/models",
+        "openai_input": {}
+      },
+      "timeout": 10000
+    }
+  ],
+  "config": {
+    "gpuTypeId": "NVIDIA RTX A6000",
+    "gpuCount": 1,
+    "env": [
+      { "key": "MAX_MODEL_LEN", "value": "8192" },
+      { "key": "GPU_MEMORY_UTILIZATION", "value": "0.95" },
+      { "key": "OPENAI_SERVED_MODEL_NAME_OVERRIDE", "value": "gemma-4-26b-moe" },
+      { "key": "ENABLE_PREFIX_CACHING", "value": "true" },
+      { "key": "ENABLE_AUTO_TOOL_CHOICE", "value": "true" },
+      { "key": "TOOL_CALL_PARSER", "value": "gemma4" },
+      { "key": "BASE_PATH", "value": "/workspace/models" }
+    ],
+    "allowedCudaVersions": ["12.8", "12.7", "12.6"]
+  }
+}
