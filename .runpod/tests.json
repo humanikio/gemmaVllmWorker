@@ -84,6 +84,7 @@
     "gpuTypeId": "NVIDIA RTX A6000",
     "gpuCount": 1,
     "env": [
+      { "key": "PORT", "value": "8080" },
       { "key": "MAX_MODEL_LEN", "value": "8192" },
       { "key": "GPU_MEMORY_UTILIZATION", "value": "0.95" },
       { "key": "OPENAI_SERVED_MODEL_NAME_OVERRIDE", "value": "gemma-4-26b-moe" },
