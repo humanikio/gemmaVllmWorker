@@ -31,7 +31,7 @@ import signal
 import traceback
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logging.basicConfig(level=logging.INFO)
@@ -149,7 +149,7 @@ async def ping():
     200 = healthy (ready to serve), 204 = initializing (model loading).
     RunPod measures cold start as time from first 204 to first 200."""
     if not _engines_ready:
-        return JSONResponse(status_code=204, content=None)
+        return Response(status_code=204)
     return JSONResponse(status_code=200, content={"status": "ok"})
 
 
