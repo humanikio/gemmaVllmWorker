@@ -101,7 +101,7 @@ Gemma 4 uses its own tool call format (`<|tool_call>call:name{args}<tool_call|>`
 |----------|-------------|
 | `NEXUS_TENANT_ID` | Tenant ID for this instance |
 | `NEXUS_SERVICE_ID` | Service ID |
-| `NEXUS_INSTANCE_ID` | Unique instance identifier |
+| `NEXUS_INSTANCE_ID` | Unique instance identifier. Also part of the HMAC signed message; protected routes return 500 without it |
 | `NEXUS_REDIS_URL` | Redis URL for heartbeat registry |
 | `CP_INSTANCE_HMAC_SECRET` | HMAC secret for request signing |
 | `IDLE_TIMEOUT_MINUTES` | Minutes before auto-pause (0 = persistent) |

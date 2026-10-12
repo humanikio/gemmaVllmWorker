@@ -8,7 +8,13 @@ Expected headers:
 - x-hmac-signature: HMAC-SHA256 signature (hex encoded)
 - x-hmac-timestamp: Unix timestamp (ms) when signature was created
 
-Message format: "{timestamp}.{method}.{path}"
+Message format: "{timestamp}.{method}.{path}.{instance_id}"
+instance_id is THIS pod's own NEXUS_INSTANCE_ID, never a value from the request.
+Binding the signature to one instance means a signature made for one pod is
+useless on any other pod (hmacBinding: 'instance' in the gemmaWorker manifest,
+nexusControlPlane docs/services/service-contract.md). A resumed pod keeps the
+same NEXUS_INSTANCE_ID, so resume does not change the signed value.
+
 Body is excluded — proxy services cannot parse the body without
 consuming the stream needed for forwarding.
 
@@ -71,13 +77,23 @@ async def verify_cp_hmac(request: Request):
             content={"error": "Internal Server Error", "message": "Server configuration error"},
         )
 
-    # Reconstruct signed message: timestamp.method.path
+    # This pod's own instance id. Fail closed, like a missing secret: without it
+    # the signature cannot be checked against this pod.
+    instance_id = os.environ.get("NEXUS_INSTANCE_ID")
+    if not instance_id:
+        logging.error("[cpHmacAuth] NEXUS_INSTANCE_ID not set")
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Internal Server Error", "message": "Server configuration error"},
+        )
+
+    # Reconstruct signed message: timestamp.method.path.instance_id
     # Body is excluded because proxy services cannot parse
     # the body without consuming the stream needed for forwarding.
     path = request.url.path
     if request.url.query:
         path = f"{path}?{request.url.query}"
-    message = f"{timestamp}.{request.method}.{path}"
+    message = f"{timestamp}.{request.method}.{path}.{instance_id}"
 
     # Generate expected signature
     expected_signature = hmac.new(

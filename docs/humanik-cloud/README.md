@@ -41,9 +41,9 @@ IDLE_TIMEOUT_MINUTES=20              # 0 = persistent (never auto-terminate)
 ```
 User → Humanik Cloud API (auth, quota, rate limiting)
   → Control Plane (ALB routing, scaling decisions)
-    → HMAC-signs request
+    → HMAC-signs request (bound to the target pod's instance id)
       → This Worker (pod:8000)
-        → Verifies HMAC
+        → Verifies HMAC with its own NEXUS_INSTANCE_ID
         → vLLM inference
         → Response back through the chain
 

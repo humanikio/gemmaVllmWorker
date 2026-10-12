@@ -4,10 +4,10 @@ The worker gates all inference endpoints behind HMAC-SHA256 signature verificati
 
 ## How It Works
 
-1. Control plane constructs the message: `{timestamp}.{method}.{path}`
+1. Control plane constructs the message: `{timestamp}.{method}.{path}.{instanceId}`, where `instanceId` is the target pod's Nexus instance id
 2. Signs it with `CP_INSTANCE_HMAC_SECRET` using HMAC-SHA256
 3. Sends the signature and timestamp as headers
-4. Worker reconstructs the same message, generates expected signature, and compares
+4. Worker reconstructs the same message with its OWN `NEXUS_INSTANCE_ID` (never a value from the request), generates expected signature, and compares
 
 ## Headers
 
@@ -19,19 +19,22 @@ The worker gates all inference endpoints behind HMAC-SHA256 signature verificati
 ## Message Format
 
 ```
-{timestamp}.{method}.{path}
+{timestamp}.{method}.{path}.{instanceId}
 ```
 
-Example for a POST to `/v1/chat/completions`:
+Example for a POST to `/v1/chat/completions` on instance `inst_a1b2c3d4e5f6`:
 ```
-1775406503000.POST./v1/chat/completions
+1775406503000.POST./v1/chat/completions.inst_a1b2c3d4e5f6
 ```
+
+The instance id is part of the signature since 2026-10-11 (`hmacBinding: 'instance'` in the gemmaWorker manifest; see nexusControlPlane `docs/services/service-contract.md`). A signature made for one pod is rejected by every other pod. A paused pod that is resumed keeps its `NEXUS_INSTANCE_ID`, so resume does not change the signed value. The old format without the instance id is no longer accepted.
 
 Body is excluded from the signature — proxy services cannot parse the body without consuming the stream needed for forwarding.
 
 ## Security Features
 
 - **Replay protection**: Requests older than 5 minutes are rejected
+- **Bound to one pod**: the signed message includes this pod's `NEXUS_INSTANCE_ID`; if it is not set, protected routes return 500
 - **Timing-safe comparison**: Uses `hmac.compare_digest()` to prevent timing attacks
 - **Exempt paths**: `/health` and `/ready` bypass HMAC (needed for load balancer probes)
 
@@ -51,7 +54,8 @@ Body is excluded from the signature — proxy services cannot parse the body wit
 # Generate signature
 TIMESTAMP=$(python3 -c "import time; print(int(time.time() * 1000))")
 SECRET="your-shared-secret"
-MESSAGE="${TIMESTAMP}.POST./v1/chat/completions"
+INSTANCE_ID="inst_a1b2c3d4e5f6"   # must equal the pod's NEXUS_INSTANCE_ID
+MESSAGE="${TIMESTAMP}.POST./v1/chat/completions.${INSTANCE_ID}"
 SIGNATURE=$(echo -n "$MESSAGE" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
 
 # Send request
@@ -64,8 +68,8 @@ curl -s https://<pod-url>/v1/chat/completions \
 
 ## Without HMAC
 
-If `CP_INSTANCE_HMAC_SECRET` is not set, the middleware returns `500 Server Configuration Error` on all protected routes. For standalone use without Humanik Cloud, either:
-1. Set `CP_INSTANCE_HMAC_SECRET` to any value and sign your own requests
+If `CP_INSTANCE_HMAC_SECRET` or `NEXUS_INSTANCE_ID` is not set, the middleware returns `500 Server Configuration Error` on all protected routes. For standalone use without Humanik Cloud, either:
+1. Set `CP_INSTANCE_HMAC_SECRET` and `NEXUS_INSTANCE_ID` to any values and sign your own requests
 2. Remove the `CpHmacMiddleware` line from `server.py`
 
 ## Implementation
